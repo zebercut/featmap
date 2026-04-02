@@ -435,7 +435,7 @@ render();
 
 document.getElementById('search').addEventListener('input', render);
 document.querySelectorAll('select').forEach(s => s.addEventListener('change', render));
-<\\/script>
+` + "<" + "/script>" + `
 </body>
 </html>`;
 }
