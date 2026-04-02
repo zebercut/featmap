@@ -6,6 +6,98 @@ import { generateManifest } from "./index-generator";
 
 const FEATURE_DIR_PATTERN = /^F\d{2,}$/;
 
+function featureReadmeTemplate(f: Feature): string {
+  return `# ${f.id} — ${f.title}
+
+**Status:** ${f.status}
+**MoSCoW:** ${f.moscow}
+**Category:** ${f.category}
+${f.priority !== null ? `**Priority:** ${f.priority}  \n` : ""}\
+${f.release ? `**Release:** ${f.release}  \n` : ""}\
+${f.tags.length > 0 ? `**Tags:** ${f.tags.join(", ")}  \n` : ""}\
+**Created:** ${f.createdAt.slice(0, 10)}
+
+---
+
+## Summary
+
+_One-paragraph description of what this feature does and why it matters._
+
+---
+
+## Problem Statement
+
+_What problem does this solve? What is broken or missing today?_
+
+---
+
+## User Stories
+
+### Story 1
+**As a** [user type], **I want** [action], **so that** [outcome].
+
+**Acceptance Criteria:**
+- [ ] Given [context], when [action], then [result]
+
+---
+
+## Workflow
+
+_Describe the user flow or system flow step by step._
+
+\`\`\`
+Step 1 → Step 2 → Step 3
+\`\`\`
+
+---
+
+## Edge Cases
+
+| Scenario | Expected Behavior |
+|----------|-------------------|
+| _e.g. user cancels mid-flow_ | _return to previous state_ |
+
+---
+
+## Success Metrics
+
+- _e.g. Reduce time-to-X by 50%_
+
+---
+
+## Out of Scope
+
+- _What this feature deliberately does NOT cover_
+
+---
+
+## Architecture Notes
+
+_Data models, API changes, component changes, dependencies._
+
+---
+
+## Implementation Notes
+
+| File | Change |
+|------|--------|
+| | |
+
+---
+
+## Testing Notes
+
+- [ ] Unit tests for _..._
+- [ ] Integration test for _..._
+
+---
+
+## Open Questions
+
+- _Unresolved decisions or unknowns_
+`;
+}
+
 function featurePath(featuresDir: string, id: string): string {
   return path.join(featuresDir, id, "feature.json");
 }
@@ -90,7 +182,7 @@ export function writeFeature(featuresDir: string, feature: Feature): void {
 
   const readmePath = path.join(dir, "README.md");
   if (!fs.existsSync(readmePath)) {
-    fs.writeFileSync(readmePath, `# ${feature.id} — ${feature.title}\n\n_Add description, design notes, and acceptance criteria here._\n`, "utf-8");
+    fs.writeFileSync(readmePath, featureReadmeTemplate(feature), "utf-8");
   }
 
   generateManifest(featuresDir);
