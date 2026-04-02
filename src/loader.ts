@@ -3,6 +3,7 @@ import * as path from "path";
 import { Feature, FeatureFilter, FeatureSortField } from "./types";
 import { validateFeature } from "./validator";
 import { generateManifest } from "./index-generator";
+import { generateHtml } from "./html-generator";
 
 const FEATURE_DIR_PATTERN = /^F\d{2,}$/;
 
@@ -186,6 +187,7 @@ export function writeFeature(featuresDir: string, feature: Feature): void {
   }
 
   generateManifest(featuresDir);
+  generateHtml(featuresDir, path.join(featuresDir, "..", "features.html"));
 }
 
 export function updateFeature(
