@@ -1,0 +1,23 @@
+{
+  "name": "featmap",
+  "version": "1.0.0",
+  "description": "File-per-feature backlog management — types, CRUD, validation, CLI",
+  "main": "src/index.ts",
+  "bin": {
+    "featmap": "src/cli.ts"
+  },
+  "scripts": {
+    "list": "ts-node src/cli.ts list",
+    "regen": "ts-node src/cli.ts regen",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0"
+  }
+}
