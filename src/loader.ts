@@ -49,6 +49,7 @@ export function filterFeatures(features: Feature[], filter: FeatureFilter): Feat
     if (filter.category && f.category !== filter.category) return false;
     if (filter.moscow && f.moscow !== filter.moscow) return false;
     if (filter.status && f.status !== filter.status) return false;
+    if (filter.release && f.release !== filter.release) return false;
     return true;
   });
 }
@@ -71,6 +72,8 @@ export function sortFeatures(
         return a.category.localeCompare(b.category);
       case "id":
         return a.id.localeCompare(b.id);
+      case "release":
+        return (a.release ?? "").localeCompare(b.release ?? "");
     }
   });
   return order === "desc" ? sorted.reverse() : sorted;

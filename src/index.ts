@@ -15,6 +15,9 @@ export { validateFeature } from "./validator";
 // Manifest
 export { generateManifest } from "./index-generator";
 
+// HTML
+export { generateHtml } from "./html-generator";
+
 // Types
 export type {
   Feature,

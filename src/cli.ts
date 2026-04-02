@@ -10,6 +10,7 @@ import {
   nextFeatureId,
 } from "./loader";
 import { generateManifest } from "./index-generator";
+import { generateHtml } from "./html-generator";
 import { Feature, FeatureFilter, FeatureSortField, MoSCoW, FeatureStatus } from "./types";
 
 function resolveFeaturesDir(flags: Record<string, string>): string {
@@ -65,6 +66,7 @@ function cmdList(featuresDir: string, flags: Record<string, string>): void {
   if (flags.status) filter.status = flags.status as FeatureStatus;
   if (flags.category) filter.category = flags.category;
   if (flags.moscow) filter.moscow = flags.moscow as MoSCoW;
+  if (flags.release) filter.release = flags.release;
   if (Object.keys(filter).length > 0) features = filterFeatures(features, filter);
   if (flags.sort) features = sortFeatures(features, flags.sort as FeatureSortField);
   printTable(features);
@@ -98,6 +100,7 @@ function cmdAdd(featuresDir: string, flags: Record<string, string>): void {
     moscow: flags.moscow as MoSCoW,
     priority: flags.priority ? parseInt(flags.priority, 10) : null,
     status: "Planned",
+    release: flags.release ?? null,
     createdAt: now,
     updatedAt: now,
     tags: flags.tags ? flags.tags.split(",").map((t) => t.trim()) : [],
@@ -121,6 +124,7 @@ function cmdUpdate(featuresDir: string, positional: string[], flags: Record<stri
   if (flags.category) updates.category = flags.category;
   if (flags.tags) updates.tags = flags.tags.split(",").map((t) => t.trim());
   if (flags.okrLink) updates.okrLink = flags.okrLink;
+  if (flags.release !== undefined) updates.release = flags.release || null;
 
   if (Object.keys(updates).length === 0) {
     console.error("No updates specified");
@@ -134,6 +138,12 @@ function cmdUpdate(featuresDir: string, positional: string[], flags: Record<stri
 function cmdRegen(featuresDir: string): void {
   const manifest = generateManifest(featuresDir);
   console.log(`Regenerated manifest: ${manifest.count} features`);
+}
+
+function cmdHtml(featuresDir: string, flags: Record<string, string>): void {
+  const outPath = flags.out ?? path.join(featuresDir, "..", "features.html");
+  generateHtml(featuresDir, outPath);
+  console.log(`Generated ${outPath}`);
 }
 
 function cmdStats(featuresDir: string): void {
@@ -168,6 +178,7 @@ Commands:
   add --title="..." --category="..." --moscow=X [--priority=N] Add a feature
   update <id> --status="..." [--priority=N] [--moscow=X]       Update a feature
   regen                                                        Regenerate manifest
+  html [--out=path]                                            Generate HTML viewer
   stats                                                        Show summary counts
   help                                                         Show this help
 
@@ -195,6 +206,9 @@ switch (command) {
     break;
   case "regen":
     cmdRegen(featuresDir);
+    break;
+  case "html":
+    cmdHtml(featuresDir, flags);
     break;
   case "stats":
     cmdStats(featuresDir);

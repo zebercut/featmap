@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "feature.schema.json",
   "type": "object",
-  "required": ["id", "title", "category", "moscow", "priority", "status", "createdAt", "updatedAt", "tags"],
+  "required": ["id", "title", "category", "moscow", "priority", "status", "release", "createdAt", "updatedAt", "tags"],
   "properties": {
     "id": { "type": "string", "pattern": "^F\\d{2,}$" },
     "title": { "type": "string", "minLength": 1 },
@@ -10,6 +10,7 @@
     "moscow": { "enum": ["MUST", "SHOULD", "COULD", "WONT"] },
     "priority": { "type": ["integer", "null"], "minimum": 1 },
     "status": { "enum": ["Planned", "In Progress", "Done", "Rejected"] },
+    "release": { "type": ["string", "null"] },
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" },
     "tags": { "type": "array", "items": { "type": "string" } },

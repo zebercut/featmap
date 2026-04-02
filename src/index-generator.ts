@@ -29,6 +29,8 @@ export function generateManifest(featuresDir: string): FeatureManifest {
           moscow: f.moscow,
           priority: f.priority,
           status: f.status,
+          release: f.release,
+          tags: f.tags,
         });
       } catch (err) {
         console.warn(`Skipping unreadable feature ${dir.name}: ${err}`);

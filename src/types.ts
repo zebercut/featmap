@@ -8,6 +8,7 @@ export interface Feature {
   moscow: MoSCoW;
   priority: number | null;
   status: FeatureStatus;
+  release: string | null;
   createdAt: string;
   updatedAt: string;
   tags: string[];
@@ -21,6 +22,8 @@ export interface FeatureManifestEntry {
   moscow: MoSCoW;
   priority: number | null;
   status: FeatureStatus;
+  release: string | null;
+  tags: string[];
 }
 
 export interface FeatureManifest {
@@ -29,6 +32,6 @@ export interface FeatureManifest {
   features: FeatureManifestEntry[];
 }
 
-export type FeatureFilterKey = "category" | "moscow" | "status";
+export type FeatureFilterKey = "category" | "moscow" | "status" | "release";
 export type FeatureFilter = Partial<Pick<Feature, FeatureFilterKey>>;
-export type FeatureSortField = "priority" | "status" | "category" | "id";
+export type FeatureSortField = "priority" | "status" | "category" | "id" | "release";
