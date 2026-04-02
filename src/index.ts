@@ -16,7 +16,7 @@ export { validateFeature } from "./validator";
 export { generateManifest } from "./index-generator";
 
 // HTML
-export { generateHtml } from "./html-generator";
+export { generateHtml, buildHtmlFromFeatures } from "./html-generator";
 
 // Server
 export { startServer } from "./server";

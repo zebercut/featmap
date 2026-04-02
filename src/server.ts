@@ -1,62 +1,106 @@
 import * as http from "http";
 import * as fs from "fs";
 import * as path from "path";
-import { loadAllFeatures, updateFeature, loadFeature } from "./loader";
-import { generateManifest } from "./index-generator";
+import { loadAllFeatures, updateFeature } from "./loader";
+import { buildHtmlFromFeatures } from "./html-generator";
+import { FEATURE_DIR_PATTERN } from "./types";
 
-const FEATURE_DIR_PATTERN = /^F\d{2,}$/;
+const MAX_BODY_SIZE = 65536; // 64KB
 
 export function startServer(featuresDir: string, port: number = 3456): void {
   const sseClients: http.ServerResponse[] = [];
+  let suppressBroadcast = false;
+  const watchers: fs.FSWatcher[] = [];
 
   function broadcast() {
+    if (suppressBroadcast) return;
+    const alive: http.ServerResponse[] = [];
     for (const res of sseClients) {
-      res.write("data: refresh\n\n");
+      try {
+        res.write("data: refresh\n\n");
+        alive.push(res);
+      } catch {
+        // Dead client — drop it (#9)
+      }
     }
+    sseClients.length = 0;
+    sseClients.push(...alive);
   }
 
-  // Watch features directory for changes
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleBroadcast() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => broadcast(), 300);
+  }
+
   function watchFeatures() {
+    // Close existing watchers before re-scanning (#2)
+    for (const w of watchers) {
+      try { w.close(); } catch { /* ignore */ }
+    }
+    watchers.length = 0;
+
     if (!fs.existsSync(featuresDir)) return;
 
     // Watch each feature subdirectory
     const dirs = fs.readdirSync(featuresDir, { withFileTypes: true });
     for (const dir of dirs) {
       if (!dir.isDirectory() || !FEATURE_DIR_PATTERN.test(dir.name)) continue;
-      const featureDir = path.join(featuresDir, dir.name);
       try {
-        fs.watch(featureDir, () => {
-          if (debounceTimer) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => broadcast(), 300);
-        });
+        const w = fs.watch(path.join(featuresDir, dir.name), scheduleBroadcast);
+        watchers.push(w);
       } catch { /* ignore watch errors */ }
     }
 
-    // Watch the features root for new/deleted directories
+    // Watch root for new/deleted directories — re-scan watchers on change (#2)
     try {
-      fs.watch(featuresDir, () => {
-        if (debounceTimer) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => broadcast(), 300);
+      const rootWatcher = fs.watch(featuresDir, () => {
+        scheduleBroadcast();
+        // Re-scan to pick up new feature directories
+        setTimeout(() => watchFeatures(), 500);
       });
+      watchers.push(rootWatcher);
     } catch { /* ignore */ }
   }
 
   function serveHtml(_req: http.IncomingMessage, res: http.ServerResponse): void {
+    // #6: Single HTML template shared with html-generator
     const features = loadAllFeatures(featuresDir);
-    const json = JSON.stringify(features);
+    const html = buildHtmlFromFeatures(features, { live: true });
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(buildHtml(json));
+    res.end(html);
   }
 
-  function serveApi(req: http.IncomingMessage, res: http.ServerResponse): void {
+  function readBody(req: http.IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let body = "";
+      let size = 0;
+      req.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > MAX_BODY_SIZE) {
+          reject(new Error("Request body too large"));
+          req.destroy();
+          return;
+        }
+        body += chunk;
+      });
+      req.on("end", () => resolve(body));
+      req.on("error", reject);
+    });
+  }
+
+  function jsonResponse(res: http.ServerResponse, status: number, data: unknown): void {
+    res.writeHead(status, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.end(JSON.stringify(data));
+  }
+
+  async function serveApi(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = req.url ?? "";
 
     // GET /api/features
     if (req.method === "GET" && url === "/api/features") {
       const features = loadAllFeatures(featuresDir);
-      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-      res.end(JSON.stringify(features));
+      jsonResponse(res, 200, features);
       return;
     }
 
@@ -81,30 +125,38 @@ export function startServer(featuresDir: string, port: number = 3456): void {
     const updateMatch = url.match(/^\/api\/features\/(F\d{2,})$/);
     if (req.method === "POST" && updateMatch) {
       const id = updateMatch[1];
-      let body = "";
-      req.on("data", (chunk) => { body += chunk; });
-      req.on("end", () => {
-        try {
-          const updates = JSON.parse(body);
-          // Sanitize: only allow known fields
-          const allowed: Record<string, unknown> = {};
-          if (updates.status !== undefined) allowed.status = updates.status;
-          if (updates.moscow !== undefined) allowed.moscow = updates.moscow;
-          if (updates.category !== undefined) allowed.category = updates.category;
-          if (updates.release !== undefined) allowed.release = updates.release || null;
-          if (updates.tags !== undefined) allowed.tags = updates.tags;
-          if (updates.priority !== undefined) allowed.priority = updates.priority;
-          if (updates.title !== undefined) allowed.title = updates.title;
-          if (updates.okrLink !== undefined) allowed.okrLink = updates.okrLink || null;
+      try {
+        const body = await readBody(req);
+        const updates = JSON.parse(body);
 
-          const updated = updateFeature(featuresDir, id, allowed);
-          res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-          res.end(JSON.stringify(updated));
-        } catch (err: any) {
-          res.writeHead(400, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-          res.end(JSON.stringify({ error: err.message }));
+        // Sanitize: only allow known fields
+        const allowed: Record<string, unknown> = {};
+        if (updates.status !== undefined) allowed.status = updates.status;
+        if (updates.moscow !== undefined) allowed.moscow = updates.moscow;
+        if (updates.category !== undefined) allowed.category = updates.category;
+        if (updates.release !== undefined) allowed.release = updates.release || null;
+        if (updates.tags !== undefined) allowed.tags = updates.tags;
+        if (updates.title !== undefined) allowed.title = updates.title;
+        if (updates.okrLink !== undefined) allowed.okrLink = updates.okrLink || null;
+        // #3: Parse priority as integer
+        if (updates.priority !== undefined) {
+          const p = updates.priority;
+          allowed.priority = p === null || p === "" ? null : parseInt(String(p), 10);
         }
-      });
+
+        // #1: Suppress file-watcher broadcast during our own write
+        suppressBroadcast = true;
+        const updated = updateFeature(featuresDir, id, allowed);
+        suppressBroadcast = false;
+
+        jsonResponse(res, 200, updated);
+
+        // Broadcast after our response, so the editing client gets the toast first
+        broadcast();
+      } catch (err: any) {
+        suppressBroadcast = false;
+        jsonResponse(res, 400, { error: err.message });
+      }
       return;
     }
 
@@ -128,7 +180,11 @@ export function startServer(featuresDir: string, port: number = 3456): void {
     if (url === "/" || url === "") {
       serveHtml(req, res);
     } else if (url.startsWith("/api/")) {
-      serveApi(req, res);
+      serveApi(req, res).catch((err) => {
+        if (!res.headersSent) {
+          jsonResponse(res, 500, { error: err.message });
+        }
+      });
     } else {
       res.writeHead(404);
       res.end("Not found");
@@ -142,430 +198,4 @@ export function startServer(featuresDir: string, port: number = 3456): void {
     console.log(`Watching: ${featuresDir}`);
     console.log("Press Ctrl+C to stop");
   });
-}
-
-function buildHtml(json: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>featmap</title>
-<style>
-  :root {
-    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
-    --border: #30363d; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681;
-    --accent: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149; --blue: #58a6ff; --gray: #6e7681;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
-  h1 { font-size: 20px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
-  h1 .live { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #3fb95022; color: var(--green); font-weight: 500; }
-
-  .toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
-  .search { background: var(--bg2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 14px; width: 260px; }
-  .search:focus { outline: none; border-color: var(--accent); }
-  select { background: var(--bg2); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; }
-  select:focus { outline: none; border-color: var(--accent); }
-
-  .stats { display: flex; gap: 16px; margin-bottom: 16px; font-size: 13px; color: var(--text2); }
-  .stats span { background: var(--bg2); padding: 4px 10px; border-radius: 4px; }
-
-  .group-header { font-size: 14px; font-weight: 600; color: var(--text2); padding: 12px 0 6px; border-bottom: 1px solid var(--border); margin-top: 12px; display: flex; align-items: center; gap: 8px; }
-  .group-header .count { font-weight: 400; color: var(--text3); font-size: 12px; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 8px 12px; color: var(--text2); font-weight: 600; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
-  th:hover { color: var(--accent); }
-  th.sorted { color: var(--accent); }
-  th.sorted::after { content: ' \\25B2'; font-size: 10px; }
-  th.sorted.desc::after { content: ' \\25BC'; }
-  td { padding: 8px 12px; border-bottom: 1px solid var(--bg3); vertical-align: top; }
-  tr:hover td { background: var(--bg2); }
-
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-  .badge-planned { background: #58a6ff22; color: var(--blue); }
-  .badge-inprogress { background: #d2992222; color: var(--yellow); }
-  .badge-done { background: #3fb95022; color: var(--green); }
-  .badge-rejected { background: #f8514922; color: var(--red); }
-
-  .moscow-must { color: var(--red); font-weight: 700; }
-  .moscow-should { color: var(--yellow); font-weight: 600; }
-  .moscow-could { color: var(--blue); }
-  .moscow-wont { color: var(--gray); }
-
-  .tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; background: var(--bg3); color: var(--text2); margin: 1px 2px; }
-  .release-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #8b5cf622; color: #a78bfa; }
-
-  .id-col { font-family: monospace; color: var(--text3); white-space: nowrap; }
-  .title-col { font-weight: 500; }
-  .empty { text-align: center; padding: 40px; color: var(--text3); }
-
-  /* Editable cells */
-  .editable { cursor: pointer; position: relative; }
-  .editable:hover { outline: 1px dashed var(--border); outline-offset: 2px; border-radius: 3px; }
-  .edit-input { background: var(--bg2); border: 1px solid var(--accent); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: inherit; width: 100%; }
-  .edit-select { background: var(--bg2); border: 1px solid var(--accent); color: var(--text); padding: 4px 6px; border-radius: 4px; font-size: 12px; }
-
-  /* Toast */
-  .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 1000; transition: opacity 0.3s; }
-  .toast-ok { background: #3fb95033; color: var(--green); border: 1px solid #3fb95044; }
-  .toast-err { background: #f8514933; color: var(--red); border: 1px solid #f8514944; }
-</style>
-</head>
-<body>
-<h1>featmap <span class="live">live</span></h1>
-
-<div class="toolbar">
-  <input class="search" id="search" type="text" placeholder="Search features...">
-  <select id="filterStatus"><option value="">All statuses</option></select>
-  <select id="filterMoscow"><option value="">All MoSCoW</option></select>
-  <select id="filterCategory"><option value="">All categories</option></select>
-  <select id="filterRelease"><option value="">All releases</option></select>
-  <select id="filterTag"><option value="">All tags</option></select>
-  <select id="groupBy">
-    <option value="">No grouping</option>
-    <option value="status">Group by Status</option>
-    <option value="category">Group by Category</option>
-    <option value="moscow">Group by MoSCoW</option>
-    <option value="release">Group by Release</option>
-    <option value="tags">Group by Tag</option>
-  </select>
-</div>
-
-<div class="stats" id="stats"></div>
-<div id="content"></div>
-<div id="toasts"></div>
-
-<script>
-let DATA = ${json};
-const statusClass = s => 'badge-' + s.toLowerCase().replace(/\\s+/g, '');
-const moscowClass = m => 'moscow-' + m.toLowerCase();
-let sortField = 'id', sortDir = 'asc';
-
-const STATUSES = ['Planned', 'In Progress', 'Done', 'Rejected'];
-const MOSCOWS = ['MUST', 'SHOULD', 'COULD', 'WONT'];
-
-// --- SSE: auto-refresh on file changes ---
-const evtSource = new EventSource('/api/events');
-evtSource.onmessage = async (e) => {
-  if (e.data === 'refresh') {
-    const res = await fetch('/api/features');
-    DATA = await res.json();
-    populateFilters();
-    render();
-  }
-};
-
-// --- Toast ---
-function toast(msg, ok) {
-  const el = document.createElement('div');
-  el.className = 'toast ' + (ok ? 'toast-ok' : 'toast-err');
-  el.textContent = msg;
-  document.getElementById('toasts').appendChild(el);
-  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2000);
-}
-
-// --- API update ---
-async function apiUpdate(id, updates) {
-  try {
-    const res = await fetch('/api/features/' + id, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-    toast(id + ' updated', true);
-  } catch (e) {
-    toast('Error: ' + e.message, false);
-  }
-}
-
-// --- Inline editing ---
-function makeEditable(td, featureId, field, currentValue, type) {
-  td.classList.add('editable');
-  td.addEventListener('click', function handler(e) {
-    if (td.querySelector('input,select')) return;
-    e.stopPropagation();
-
-    if (type === 'select-status') {
-      const sel = document.createElement('select');
-      sel.className = 'edit-select';
-      STATUSES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; if (s === currentValue) o.selected = true; sel.appendChild(o); });
-      td.innerHTML = '';
-      td.appendChild(sel);
-      sel.focus();
-      sel.addEventListener('change', () => { apiUpdate(featureId, { [field]: sel.value }); });
-      sel.addEventListener('blur', () => { render(); });
-    } else if (type === 'select-moscow') {
-      const sel = document.createElement('select');
-      sel.className = 'edit-select';
-      MOSCOWS.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; if (m === currentValue) o.selected = true; sel.appendChild(o); });
-      td.innerHTML = '';
-      td.appendChild(sel);
-      sel.focus();
-      sel.addEventListener('change', () => { apiUpdate(featureId, { [field]: sel.value }); });
-      sel.addEventListener('blur', () => { render(); });
-    } else if (type === 'tags') {
-      const input = document.createElement('input');
-      input.className = 'edit-input';
-      input.value = (currentValue || []).join(', ');
-      input.placeholder = 'tag1, tag2, ...';
-      td.innerHTML = '';
-      td.appendChild(input);
-      input.focus();
-      input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') {
-          const tags = input.value.split(',').map(t => t.trim()).filter(Boolean);
-          apiUpdate(featureId, { tags });
-        }
-        if (ev.key === 'Escape') render();
-      });
-      input.addEventListener('blur', () => { render(); });
-    } else {
-      const input = document.createElement('input');
-      input.className = 'edit-input';
-      input.value = currentValue ?? '';
-      td.innerHTML = '';
-      td.appendChild(input);
-      input.focus();
-      input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') { apiUpdate(featureId, { [field]: input.value || null }); }
-        if (ev.key === 'Escape') render();
-      });
-      input.addEventListener('blur', () => { render(); });
-    }
-  });
-}
-
-function populateFilters() {
-  ['filterStatus','filterMoscow','filterCategory','filterRelease','filterTag'].forEach(id => {
-    const sel = document.getElementById(id);
-    const val = sel.value;
-    while (sel.options.length > 1) sel.remove(1);
-    sel.value = val;
-  });
-  const statuses = [...new Set(DATA.map(f => f.status))].sort();
-  const moscows = [...new Set(DATA.map(f => f.moscow))];
-  const categories = [...new Set(DATA.map(f => f.category))].sort();
-  const releases = [...new Set(DATA.map(f => f.release).filter(Boolean))].sort();
-  const tags = [...new Set(DATA.flatMap(f => f.tags))].sort();
-
-  statuses.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; document.getElementById('filterStatus').appendChild(o); });
-  moscows.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; document.getElementById('filterMoscow').appendChild(o); });
-  categories.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; document.getElementById('filterCategory').appendChild(o); });
-  releases.forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r; document.getElementById('filterRelease').appendChild(o); });
-  tags.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; document.getElementById('filterTag').appendChild(o); });
-}
-
-function getFiltered() {
-  const q = document.getElementById('search').value.toLowerCase();
-  const status = document.getElementById('filterStatus').value;
-  const moscow = document.getElementById('filterMoscow').value;
-  const category = document.getElementById('filterCategory').value;
-  const release = document.getElementById('filterRelease').value;
-  const tag = document.getElementById('filterTag').value;
-
-  return DATA.filter(f => {
-    if (q && !f.id.toLowerCase().includes(q) && !f.title.toLowerCase().includes(q) && !f.tags.some(t => t.toLowerCase().includes(q))) return false;
-    if (status && f.status !== status) return false;
-    if (moscow && f.moscow !== moscow) return false;
-    if (category && f.category !== category) return false;
-    if (release && f.release !== release) return false;
-    if (tag && !f.tags.includes(tag)) return false;
-    return true;
-  });
-}
-
-function sortData(features) {
-  return [...features].sort((a, b) => {
-    let va, vb;
-    switch (sortField) {
-      case 'priority': va = a.priority ?? 999; vb = b.priority ?? 999; break;
-      case 'release': va = a.release ?? ''; vb = b.release ?? ''; break;
-      default: va = a[sortField] ?? ''; vb = b[sortField] ?? '';
-    }
-    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb));
-    return sortDir === 'asc' ? cmp : -cmp;
-  });
-}
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-function renderTable(features) {
-  const headers = [
-    { key: 'id', label: '#' },
-    { key: 'title', label: 'Feature' },
-    { key: 'category', label: 'Category' },
-    { key: 'moscow', label: 'MoSCoW' },
-    { key: 'priority', label: 'Prio' },
-    { key: 'status', label: 'Status' },
-    { key: 'release', label: 'Release' },
-    { key: 'tags', label: 'Tags' },
-  ];
-
-  const table = document.createElement('table');
-
-  // Header
-  const thead = document.createElement('thead');
-  const headerRow = document.createElement('tr');
-  headers.forEach(h => {
-    const th = document.createElement('th');
-    th.textContent = h.label;
-    th.dataset.sort = h.key;
-    if (sortField === h.key) { th.classList.add('sorted'); if (sortDir === 'desc') th.classList.add('desc'); }
-    th.addEventListener('click', () => {
-      if (h.key === 'tags') return;
-      if (sortField === h.key) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
-      else { sortField = h.key; sortDir = 'asc'; }
-      render();
-    });
-    headerRow.appendChild(th);
-  });
-  thead.appendChild(headerRow);
-  table.appendChild(thead);
-
-  // Body
-  const tbody = document.createElement('tbody');
-  if (features.length === 0) {
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.colSpan = 8;
-    td.className = 'empty';
-    td.textContent = 'No features match';
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-  } else {
-    features.forEach(f => {
-      const tr = document.createElement('tr');
-
-      // ID
-      const tdId = document.createElement('td');
-      tdId.className = 'id-col';
-      tdId.textContent = f.id;
-      tr.appendChild(tdId);
-
-      // Title
-      const tdTitle = document.createElement('td');
-      tdTitle.className = 'title-col';
-      tdTitle.textContent = f.title;
-      makeEditable(tdTitle, f.id, 'title', f.title, 'text');
-      tr.appendChild(tdTitle);
-
-      // Category
-      const tdCat = document.createElement('td');
-      tdCat.textContent = f.category;
-      makeEditable(tdCat, f.id, 'category', f.category, 'text');
-      tr.appendChild(tdCat);
-
-      // MoSCoW
-      const tdMoscow = document.createElement('td');
-      const moscowSpan = document.createElement('span');
-      moscowSpan.className = moscowClass(f.moscow);
-      moscowSpan.textContent = f.moscow;
-      tdMoscow.appendChild(moscowSpan);
-      makeEditable(tdMoscow, f.id, 'moscow', f.moscow, 'select-moscow');
-      tr.appendChild(tdMoscow);
-
-      // Priority
-      const tdPrio = document.createElement('td');
-      tdPrio.textContent = f.priority !== null ? String(f.priority) : '\\u2014';
-      makeEditable(tdPrio, f.id, 'priority', f.priority, 'text');
-      tr.appendChild(tdPrio);
-
-      // Status
-      const tdStatus = document.createElement('td');
-      const statusSpan = document.createElement('span');
-      statusSpan.className = 'badge ' + statusClass(f.status);
-      statusSpan.textContent = f.status;
-      tdStatus.appendChild(statusSpan);
-      makeEditable(tdStatus, f.id, 'status', f.status, 'select-status');
-      tr.appendChild(tdStatus);
-
-      // Release
-      const tdRel = document.createElement('td');
-      if (f.release) {
-        const relSpan = document.createElement('span');
-        relSpan.className = 'release-badge';
-        relSpan.textContent = f.release;
-        tdRel.appendChild(relSpan);
-      } else {
-        tdRel.textContent = '\\u2014';
-      }
-      makeEditable(tdRel, f.id, 'release', f.release, 'text');
-      tr.appendChild(tdRel);
-
-      // Tags
-      const tdTags = document.createElement('td');
-      if (f.tags.length > 0) {
-        f.tags.forEach(t => {
-          const span = document.createElement('span');
-          span.className = 'tag';
-          span.textContent = t;
-          tdTags.appendChild(span);
-        });
-      } else {
-        tdTags.textContent = '\\u2014';
-      }
-      makeEditable(tdTags, f.id, 'tags', f.tags, 'tags');
-      tr.appendChild(tdTags);
-
-      tbody.appendChild(tr);
-    });
-  }
-  table.appendChild(tbody);
-  return table;
-}
-
-function render() {
-  const filtered = getFiltered();
-  const sorted = sortData(filtered);
-  const groupByVal = document.getElementById('groupBy').value;
-  const content = document.getElementById('content');
-
-  const done = filtered.filter(f => f.status === 'Done').length;
-  const inProg = filtered.filter(f => f.status === 'In Progress').length;
-  const planned = filtered.filter(f => f.status === 'Planned').length;
-  document.getElementById('stats').innerHTML =
-    '<span>' + filtered.length + ' features</span>' +
-    '<span>Done: ' + done + '</span>' +
-    '<span>In Progress: ' + inProg + '</span>' +
-    '<span>Planned: ' + planned + '</span>';
-
-  content.innerHTML = '';
-
-  if (!groupByVal) {
-    content.appendChild(renderTable(sorted));
-  } else {
-    const groups = {};
-    for (const f of sorted) {
-      let keys;
-      if (groupByVal === 'tags') {
-        keys = f.tags.length > 0 ? f.tags : ['(untagged)'];
-      } else {
-        keys = [f[groupByVal] ?? '(none)'];
-      }
-      for (const k of keys) {
-        if (!groups[k]) groups[k] = [];
-        groups[k].push(f);
-      }
-    }
-    Object.keys(groups).sort().forEach(k => {
-      const header = document.createElement('div');
-      header.className = 'group-header';
-      header.innerHTML = esc(k) + ' <span class="count">(' + groups[k].length + ')</span>';
-      content.appendChild(header);
-      content.appendChild(renderTable(groups[k]));
-    });
-  }
-}
-
-populateFilters();
-render();
-
-document.getElementById('search').addEventListener('input', render);
-document.querySelectorAll('select').forEach(s => s.addEventListener('change', render));
-<\\/script>
-</body>
-</html>`;
 }

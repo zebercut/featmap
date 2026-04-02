@@ -1,9 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Feature, FeatureManifest, FeatureManifestEntry } from "./types";
+import { Feature, FeatureManifest, FeatureManifestEntry, FEATURE_DIR_PATTERN } from "./types";
 import { validateFeature } from "./validator";
-
-const FEATURE_DIR_PATTERN = /^F\d{2,}$/;
 
 export function generateManifest(featuresDir: string): FeatureManifest {
   const entries: FeatureManifestEntry[] = [];

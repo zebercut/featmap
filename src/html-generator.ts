@@ -1,11 +1,25 @@
 import * as fs from "fs";
 import { loadAllFeatures } from "./loader";
+import { Feature } from "./types";
+
+export interface HtmlOptions {
+  live?: boolean;   // Enable SSE + inline editing (server mode)
+}
 
 export function generateHtml(featuresDir: string, outPath: string): void {
   const features = loadAllFeatures(featuresDir);
-  const json = JSON.stringify(features, null, 2);
+  const html = buildHtmlFromFeatures(features, { live: false });
+  fs.writeFileSync(outPath, html, "utf-8");
+}
 
-  const html = `<!DOCTYPE html>
+export function buildHtmlFromFeatures(features: Feature[], opts: HtmlOptions = {}): string {
+  const json = JSON.stringify(features);
+  const live = opts.live ?? false;
+  return buildHtml(json, live);
+}
+
+function buildHtml(json: string, live: boolean): string {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -19,7 +33,8 @@ export function generateHtml(featuresDir: string, outPath: string): void {
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
-  h1 { font-size: 20px; font-weight: 600; margin-bottom: 16px; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
+  h1 .live { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #3fb95022; color: var(--green); font-weight: 500; }
 
   .toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
   .search { background: var(--bg2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 14px; width: 260px; }
@@ -59,10 +74,21 @@ export function generateHtml(featuresDir: string, outPath: string): void {
   .id-col { font-family: monospace; color: var(--text3); white-space: nowrap; }
   .title-col { font-weight: 500; }
   .empty { text-align: center; padding: 40px; color: var(--text3); }
+
+  /* Editable cells (live mode only) */
+  .editable { cursor: pointer; position: relative; }
+  .editable:hover { outline: 1px dashed var(--border); outline-offset: 2px; border-radius: 3px; }
+  .edit-input { background: var(--bg2); border: 1px solid var(--accent); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: inherit; width: 100%; }
+  .edit-select { background: var(--bg2); border: 1px solid var(--accent); color: var(--text); padding: 4px 6px; border-radius: 4px; font-size: 12px; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 1000; transition: opacity 0.3s; }
+  .toast-ok { background: #3fb95033; color: var(--green); border: 1px solid #3fb95044; }
+  .toast-err { background: #f8514933; color: var(--red); border: 1px solid #f8514944; }
 </style>
 </head>
 <body>
-<h1>featmap</h1>
+<h1>featmap${live ? ' <span class="live">live</span>' : ''}</h1>
 
 <div class="toolbar">
   <input class="search" id="search" type="text" placeholder="Search features...">
@@ -83,16 +109,123 @@ export function generateHtml(featuresDir: string, outPath: string): void {
 
 <div class="stats" id="stats"></div>
 <div id="content"></div>
+<div id="toasts"></div>
 
 <script>
-const DATA = ` + json + `;
-
+let DATA = ` + json + `;
+const LIVE = ${live};
 const statusClass = s => 'badge-' + s.toLowerCase().replace(/\\s+/g, '');
 const moscowClass = m => 'moscow-' + m.toLowerCase();
-
 let sortField = 'id', sortDir = 'asc';
 
+const STATUSES = ['Planned', 'In Progress', 'Done', 'Rejected'];
+const MOSCOWS = ['MUST', 'SHOULD', 'COULD', 'WONT'];
+
+// --- SSE: auto-refresh on file changes (live mode only) ---
+if (LIVE) {
+  const evtSource = new EventSource('/api/events');
+  evtSource.onmessage = async (e) => {
+    if (e.data === 'refresh') {
+      try {
+        const res = await fetch('/api/features');
+        DATA = await res.json();
+        populateFilters();
+        render();
+      } catch { /* ignore fetch errors during refresh */ }
+    }
+  };
+}
+
+// --- Toast ---
+function toast(msg, ok) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (ok ? 'toast-ok' : 'toast-err');
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2000);
+}
+
+// --- API update (live mode only) ---
+async function apiUpdate(id, updates) {
+  if (!LIVE) return;
+  try {
+    const res = await fetch('/api/features/' + id, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+    toast(id + ' updated', true);
+  } catch (e) {
+    toast('Error: ' + e.message, false);
+  }
+}
+
+// --- Inline editing ---
+function makeEditable(td, featureId, field, currentValue, type) {
+  if (!LIVE) return;
+  td.classList.add('editable');
+  td.addEventListener('click', function handler(e) {
+    if (td.querySelector('input,select')) return;
+    e.stopPropagation();
+
+    if (type === 'select-status') {
+      const sel = document.createElement('select');
+      sel.className = 'edit-select';
+      STATUSES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; if (s === currentValue) o.selected = true; sel.appendChild(o); });
+      td.innerHTML = '';
+      td.appendChild(sel);
+      sel.focus();
+      sel.addEventListener('change', () => { apiUpdate(featureId, { [field]: sel.value }); });
+      sel.addEventListener('blur', () => { render(); });
+    } else if (type === 'select-moscow') {
+      const sel = document.createElement('select');
+      sel.className = 'edit-select';
+      MOSCOWS.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; if (m === currentValue) o.selected = true; sel.appendChild(o); });
+      td.innerHTML = '';
+      td.appendChild(sel);
+      sel.focus();
+      sel.addEventListener('change', () => { apiUpdate(featureId, { [field]: sel.value }); });
+      sel.addEventListener('blur', () => { render(); });
+    } else if (type === 'tags') {
+      const input = document.createElement('input');
+      input.className = 'edit-input';
+      input.value = (currentValue || []).join(', ');
+      input.placeholder = 'tag1, tag2, ...';
+      td.innerHTML = '';
+      td.appendChild(input);
+      input.focus();
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          const tags = input.value.split(',').map(t => t.trim()).filter(Boolean);
+          apiUpdate(featureId, { tags });
+        }
+        if (ev.key === 'Escape') render();
+      });
+      input.addEventListener('blur', () => { render(); });
+    } else {
+      const input = document.createElement('input');
+      input.className = 'edit-input';
+      input.value = currentValue ?? '';
+      td.innerHTML = '';
+      td.appendChild(input);
+      input.focus();
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { apiUpdate(featureId, { [field]: input.value || null }); }
+        if (ev.key === 'Escape') render();
+      });
+      input.addEventListener('blur', () => { render(); });
+    }
+  });
+}
+
 function populateFilters() {
+  ['filterStatus','filterMoscow','filterCategory','filterRelease','filterTag'].forEach(id => {
+    const sel = document.getElementById(id);
+    const val = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    sel.value = val;
+  });
   const statuses = [...new Set(DATA.map(f => f.status))].sort();
   const moscows = [...new Set(DATA.map(f => f.moscow))];
   const categories = [...new Set(DATA.map(f => f.category))].sort();
@@ -140,22 +273,6 @@ function sortData(features) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-function renderRow(f) {
-  const prio = f.priority !== null ? f.priority : '\\u2014';
-  const rel = f.release ? '<span class="release-badge">' + esc(f.release) + '</span>' : '\\u2014';
-  const tags = f.tags.map(t => '<span class="tag">' + esc(t) + '</span>').join('');
-  return '<tr>'
-    + '<td class="id-col">' + esc(f.id) + '</td>'
-    + '<td class="title-col">' + esc(f.title) + '</td>'
-    + '<td>' + esc(f.category) + '</td>'
-    + '<td><span class="' + moscowClass(f.moscow) + '">' + esc(f.moscow) + '</span></td>'
-    + '<td>' + prio + '</td>'
-    + '<td><span class="badge ' + statusClass(f.status) + '">' + esc(f.status) + '</span></td>'
-    + '<td>' + rel + '</td>'
-    + '<td>' + (tags || '\\u2014') + '</td>'
-    + '</tr>';
-}
-
 function renderTable(features) {
   const headers = [
     { key: 'id', label: '#' },
@@ -168,19 +285,112 @@ function renderTable(features) {
     { key: 'tags', label: 'Tags' },
   ];
 
-  const ths = headers.map(h => {
-    const cls = sortField === h.key ? (sortDir === 'desc' ? 'sorted desc' : 'sorted') : '';
-    return '<th class="' + cls + '" data-sort="' + h.key + '">' + h.label + '</th>';
-  }).join('');
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  headers.forEach(h => {
+    const th = document.createElement('th');
+    th.textContent = h.label;
+    th.dataset.sort = h.key;
+    if (sortField === h.key) { th.classList.add('sorted'); if (sortDir === 'desc') th.classList.add('desc'); }
+    th.addEventListener('click', () => {
+      if (h.key === 'tags') return;
+      if (sortField === h.key) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+      else { sortField = h.key; sortDir = 'asc'; }
+      render();
+    });
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
 
-  const rows = features.map(renderRow).join('');
-  return '<table><thead><tr>' + ths + '</tr></thead><tbody>' + (rows || '<tr><td colspan="8" class="empty">No features match</td></tr>') + '</tbody></table>';
+  const tbody = document.createElement('tbody');
+  if (features.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 8;
+    td.className = 'empty';
+    td.textContent = 'No features match';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    features.forEach(f => {
+      const tr = document.createElement('tr');
+
+      const tdId = document.createElement('td');
+      tdId.className = 'id-col';
+      tdId.textContent = f.id;
+      tr.appendChild(tdId);
+
+      const tdTitle = document.createElement('td');
+      tdTitle.className = 'title-col';
+      tdTitle.textContent = f.title;
+      makeEditable(tdTitle, f.id, 'title', f.title, 'text');
+      tr.appendChild(tdTitle);
+
+      const tdCat = document.createElement('td');
+      tdCat.textContent = f.category;
+      makeEditable(tdCat, f.id, 'category', f.category, 'text');
+      tr.appendChild(tdCat);
+
+      const tdMoscow = document.createElement('td');
+      const moscowSpan = document.createElement('span');
+      moscowSpan.className = moscowClass(f.moscow);
+      moscowSpan.textContent = f.moscow;
+      tdMoscow.appendChild(moscowSpan);
+      makeEditable(tdMoscow, f.id, 'moscow', f.moscow, 'select-moscow');
+      tr.appendChild(tdMoscow);
+
+      const tdPrio = document.createElement('td');
+      tdPrio.textContent = f.priority !== null ? String(f.priority) : '\\u2014';
+      makeEditable(tdPrio, f.id, 'priority', f.priority, 'text');
+      tr.appendChild(tdPrio);
+
+      const tdStatus = document.createElement('td');
+      const statusSpan = document.createElement('span');
+      statusSpan.className = 'badge ' + statusClass(f.status);
+      statusSpan.textContent = f.status;
+      tdStatus.appendChild(statusSpan);
+      makeEditable(tdStatus, f.id, 'status', f.status, 'select-status');
+      tr.appendChild(tdStatus);
+
+      const tdRel = document.createElement('td');
+      if (f.release) {
+        const relSpan = document.createElement('span');
+        relSpan.className = 'release-badge';
+        relSpan.textContent = f.release;
+        tdRel.appendChild(relSpan);
+      } else {
+        tdRel.textContent = '\\u2014';
+      }
+      makeEditable(tdRel, f.id, 'release', f.release, 'text');
+      tr.appendChild(tdRel);
+
+      const tdTags = document.createElement('td');
+      if (f.tags.length > 0) {
+        f.tags.forEach(t => {
+          const span = document.createElement('span');
+          span.className = 'tag';
+          span.textContent = t;
+          tdTags.appendChild(span);
+        });
+      } else {
+        tdTags.textContent = '\\u2014';
+      }
+      makeEditable(tdTags, f.id, 'tags', f.tags, 'tags');
+      tr.appendChild(tdTags);
+
+      tbody.appendChild(tr);
+    });
+  }
+  table.appendChild(tbody);
+  return table;
 }
 
 function render() {
   const filtered = getFiltered();
   const sorted = sortData(filtered);
-  const groupBy = document.getElementById('groupBy').value;
+  const groupByVal = document.getElementById('groupBy').value;
   const content = document.getElementById('content');
 
   const done = filtered.filter(f => f.status === 'Done').length;
@@ -192,37 +402,32 @@ function render() {
     '<span>In Progress: ' + inProg + '</span>' +
     '<span>Planned: ' + planned + '</span>';
 
-  if (!groupBy) {
-    content.innerHTML = renderTable(sorted);
+  content.innerHTML = '';
+
+  if (!groupByVal) {
+    content.appendChild(renderTable(sorted));
   } else {
     const groups = {};
     for (const f of sorted) {
       let keys;
-      if (groupBy === 'tags') {
+      if (groupByVal === 'tags') {
         keys = f.tags.length > 0 ? f.tags : ['(untagged)'];
       } else {
-        keys = [f[groupBy] ?? '(none)'];
+        keys = [f[groupByVal] ?? '(none)'];
       }
       for (const k of keys) {
         if (!groups[k]) groups[k] = [];
         groups[k].push(f);
       }
     }
-    const sortedKeys = Object.keys(groups).sort();
-    content.innerHTML = sortedKeys.map(k =>
-      '<div class="group-header">' + esc(k) + ' <span class="count">(' + groups[k].length + ')</span></div>' + renderTable(groups[k])
-    ).join('');
-  }
-
-  content.querySelectorAll('th[data-sort]').forEach(th => {
-    th.addEventListener('click', () => {
-      const field = th.dataset.sort;
-      if (field === 'tags') return;
-      if (sortField === field) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
-      else { sortField = field; sortDir = 'asc'; }
-      render();
+    Object.keys(groups).sort().forEach(k => {
+      const header = document.createElement('div');
+      header.className = 'group-header';
+      header.innerHTML = esc(k) + ' <span class="count">(' + groups[k].length + ')</span>';
+      content.appendChild(header);
+      content.appendChild(renderTable(groups[k]));
     });
-  });
+  }
 }
 
 populateFilters();
@@ -230,9 +435,7 @@ render();
 
 document.getElementById('search').addEventListener('input', render);
 document.querySelectorAll('select').forEach(s => s.addEventListener('change', render));
-<\/script>
+<\\/script>
 </body>
 </html>`;
-
-  fs.writeFileSync(outPath, html, "utf-8");
 }

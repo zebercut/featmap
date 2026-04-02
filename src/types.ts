@@ -1,6 +1,8 @@
 export type MoSCoW = "MUST" | "SHOULD" | "COULD" | "WONT";
 export type FeatureStatus = "Planned" | "In Progress" | "Done" | "Rejected";
 
+export const FEATURE_DIR_PATTERN = /^F\d{2,}$/;
+
 export interface Feature {
   id: string;
   title: string;

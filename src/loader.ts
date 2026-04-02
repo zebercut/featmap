@@ -1,11 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Feature, FeatureFilter, FeatureSortField } from "./types";
+import { Feature, FeatureFilter, FeatureSortField, FEATURE_DIR_PATTERN } from "./types";
 import { validateFeature } from "./validator";
 import { generateManifest } from "./index-generator";
 import { generateHtml } from "./html-generator";
-
-const FEATURE_DIR_PATTERN = /^F\d{2,}$/;
 
 function featureReadmeTemplate(f: Feature): string {
   return `# ${f.id} — ${f.title}
@@ -126,8 +124,12 @@ export function loadAllFeatures(featuresDir: string): Feature[] {
   const features: Feature[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory() || !FEATURE_DIR_PATTERN.test(entry.name)) continue;
-    const feature = loadFeature(featuresDir, entry.name);
-    if (feature) features.push(feature);
+    try {
+      const feature = loadFeature(featuresDir, entry.name);
+      if (feature) features.push(feature);
+    } catch (err) {
+      console.warn(`Skipping invalid feature ${entry.name}: ${err}`);
+    }
   }
   return features.sort((a, b) => {
     const pa = a.priority ?? 999;
