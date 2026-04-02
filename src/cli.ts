@@ -11,6 +11,7 @@ import {
 } from "./loader";
 import { generateManifest } from "./index-generator";
 import { generateHtml } from "./html-generator";
+import { startServer } from "./server";
 import { Feature, FeatureFilter, FeatureSortField, MoSCoW, FeatureStatus } from "./types";
 
 function resolveFeaturesDir(flags: Record<string, string>): string {
@@ -179,6 +180,7 @@ Commands:
   update <id> --status="..." [--priority=N] [--moscow=X]       Update a feature
   regen                                                        Regenerate manifest
   html [--out=path]                                            Generate HTML viewer
+  serve [--port=3456]                                          Start local server with live editing
   stats                                                        Show summary counts
   help                                                         Show this help
 
@@ -209,6 +211,9 @@ switch (command) {
     break;
   case "html":
     cmdHtml(featuresDir, flags);
+    break;
+  case "serve":
+    startServer(featuresDir, flags.port ? parseInt(flags.port, 10) : 3456);
     break;
   case "stats":
     cmdStats(featuresDir);

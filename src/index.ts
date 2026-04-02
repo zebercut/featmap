@@ -18,6 +18,9 @@ export { generateManifest } from "./index-generator";
 // HTML
 export { generateHtml } from "./html-generator";
 
+// Server
+export { startServer } from "./server";
+
 // Types
 export type {
   Feature,
