@@ -2,7 +2,7 @@
 import * as path from "path";
 import {
   loadAllFeatures,
-  loadFeature,
+  loadFeatureById,
   filterFeatures,
   sortFeatures,
   writeFeature,
@@ -48,14 +48,14 @@ function pad(str: string, len: number): string {
 }
 
 function printTable(features: Feature[]): void {
-  const header = ` ${pad("#", 4)}| ${pad("Feature", 48)}| ${pad("Category", 12)}| ${pad("MoSCoW", 8)}| ${pad("Prio", 6)}| Status`;
+  const header = ` ${pad("#", 8)}| ${pad("Feature", 44)}| ${pad("Category", 12)}| ${pad("MoSCoW", 8)}| ${pad("Prio", 6)}| Status`;
   const sep = "-".repeat(header.length);
   console.log(header);
   console.log(sep);
   for (const f of features) {
     const prio = f.priority !== null ? String(f.priority) : "\u2014";
     console.log(
-      ` ${pad(f.id, 4)}| ${pad(f.title, 48)}| ${pad(f.category, 12)}| ${pad(f.moscow, 8)}| ${pad(prio, 6)}| ${f.status}`
+      ` ${pad(f.id, 8)}| ${pad(f.title, 44)}| ${pad(f.category, 12)}| ${pad(f.moscow, 8)}| ${pad(prio, 6)}| ${f.status}`
     );
   }
   console.log(`\n${features.length} feature(s)`);
@@ -79,7 +79,7 @@ function cmdShow(featuresDir: string, positional: string[]): void {
     console.error("Usage: show <id>");
     process.exit(1);
   }
-  const feature = loadFeature(featuresDir, id.toUpperCase());
+  const feature = loadFeatureById(featuresDir, id.toUpperCase());
   if (!feature) {
     console.error(`Feature ${id} not found`);
     process.exit(1);

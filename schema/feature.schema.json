@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["id", "title", "category", "moscow", "priority", "status", "release", "createdAt", "updatedAt", "tags"],
   "properties": {
-    "id": { "type": "string", "pattern": "^F\\d{2,}$" },
+    "id": { "type": "string", "pattern": "^FEAT\\d{3,}$" },
     "title": { "type": "string", "minLength": 1 },
     "category": { "type": "string", "minLength": 1 },
     "moscow": { "enum": ["MUST", "SHOULD", "COULD", "WONT"] },

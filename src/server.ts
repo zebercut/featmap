@@ -122,7 +122,7 @@ export function startServer(featuresDir: string, port: number = 3456): void {
     }
 
     // POST /api/features/:id
-    const updateMatch = url.match(/^\/api\/features\/(F\d{2,})$/);
+    const updateMatch = url.match(/^\/api\/features\/(FEAT\d{3,})$/);
     if (req.method === "POST" && updateMatch) {
       const id = updateMatch[1];
       try {

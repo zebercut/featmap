@@ -1,11 +1,11 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Feature, FeatureFilter, FeatureSortField, FEATURE_DIR_PATTERN } from "./types";
+import { Feature, FeatureFilter, FeatureSortField, FEATURE_DIR_PATTERN, featureDirName, extractIdFromDir, slugify } from "./types";
 import { validateFeature } from "./validator";
 import { generateManifest } from "./index-generator";
 import { generateHtml } from "./html-generator";
 
-function featureReadmeTemplate(f: Feature): string {
+function featureReadmeTemplate(f: Feature, fileName: string): string {
   return `# ${f.id} — ${f.title}
 
 **Status:** ${f.status}
@@ -97,25 +97,49 @@ _Data models, API changes, component changes, dependencies._
 `;
 }
 
-function featurePath(featuresDir: string, id: string): string {
-  return path.join(featuresDir, id, "feature.json");
-}
-
 function atomicWrite(filePath: string, data: string): void {
   const tmp = filePath + ".tmp";
   fs.writeFileSync(tmp, data, "utf-8");
   fs.renameSync(tmp, filePath);
 }
 
-export function loadFeature(featuresDir: string, id: string): Feature | null {
-  const fp = featurePath(featuresDir, id);
-  if (!fs.existsSync(fp)) return null;
-  const raw = JSON.parse(fs.readFileSync(fp, "utf-8"));
+/** Find the directory for a feature by its ID (e.g. FEAT001). Scans for dirs starting with that prefix. */
+function findFeatureDir(featuresDir: string, id: string): string | null {
+  if (!fs.existsSync(featuresDir)) return null;
+  const entries = fs.readdirSync(featuresDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name.startsWith(id + "_")) return entry.name;
+  }
+  return null;
+}
+
+/** Find the .json data file inside a feature directory. */
+function findJsonFile(dirPath: string): string | null {
+  const files = fs.readdirSync(dirPath);
+  for (const file of files) {
+    if (file.endsWith(".json") && !file.startsWith("_")) return file;
+  }
+  return null;
+}
+
+export function loadFeature(featuresDir: string, dirName: string): Feature | null {
+  const dirPath = path.join(featuresDir, dirName);
+  if (!fs.existsSync(dirPath)) return null;
+  const jsonFile = findJsonFile(dirPath);
+  if (!jsonFile) return null;
+  const raw = JSON.parse(fs.readFileSync(path.join(dirPath, jsonFile), "utf-8"));
   const result = validateFeature(raw);
   if (!result.valid) {
-    throw new Error(`Invalid feature ${id}: ${result.errors.join(", ")}`);
+    throw new Error(`Invalid feature ${dirName}: ${result.errors.join(", ")}`);
   }
   return raw as Feature;
+}
+
+export function loadFeatureById(featuresDir: string, id: string): Feature | null {
+  const dirName = findFeatureDir(featuresDir, id);
+  if (!dirName) return null;
+  return loadFeature(featuresDir, dirName);
 }
 
 export function loadAllFeatures(featuresDir: string): Feature[] {
@@ -179,13 +203,16 @@ export function writeFeature(featuresDir: string, feature: Feature): void {
   if (!result.valid) {
     throw new Error(`Invalid feature data: ${result.errors.join(", ")}`);
   }
-  const dir = path.join(featuresDir, feature.id);
+  const dirName = featureDirName(feature.id, feature.title);
+  const dir = path.join(featuresDir, dirName);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  atomicWrite(path.join(dir, "feature.json"), JSON.stringify(feature, null, 2) + "\n");
 
-  const readmePath = path.join(dir, "README.md");
-  if (!fs.existsSync(readmePath)) {
-    fs.writeFileSync(readmePath, featureReadmeTemplate(feature), "utf-8");
+  const baseName = dirName;
+  atomicWrite(path.join(dir, `${baseName}.json`), JSON.stringify(feature, null, 2) + "\n");
+
+  const mdPath = path.join(dir, `${baseName}.md`);
+  if (!fs.existsSync(mdPath)) {
+    fs.writeFileSync(mdPath, featureReadmeTemplate(feature, baseName), "utf-8");
   }
 
   generateManifest(featuresDir);
@@ -197,14 +224,36 @@ export function updateFeature(
   id: string,
   updates: Partial<Omit<Feature, "id">>
 ): Feature {
-  const existing = loadFeature(featuresDir, id);
+  const existing = loadFeatureById(featuresDir, id);
   if (!existing) throw new Error(`Feature ${id} not found`);
+
   const updated: Feature = {
     ...existing,
     ...updates,
     id: existing.id,
     updatedAt: new Date().toISOString(),
   };
+
+  // If title changed, rename the directory and files
+  const oldDirName = findFeatureDir(featuresDir, id);
+  const newDirName = featureDirName(id, updated.title);
+
+  if (oldDirName && oldDirName !== newDirName) {
+    const oldDir = path.join(featuresDir, oldDirName);
+    const newDir = path.join(featuresDir, newDirName);
+    // Rename old files inside the directory first
+    const files = fs.readdirSync(oldDir);
+    for (const file of files) {
+      const ext = path.extname(file);
+      const newFile = `${newDirName}${ext}`;
+      if (file !== newFile) {
+        fs.renameSync(path.join(oldDir, file), path.join(oldDir, newFile));
+      }
+    }
+    // Rename directory
+    fs.renameSync(oldDir, newDir);
+  }
+
   writeFeature(featuresDir, updated);
   return updated;
 }
@@ -213,7 +262,10 @@ export function nextFeatureId(featuresDir: string): string {
   const entries = fs.existsSync(featuresDir)
     ? fs.readdirSync(featuresDir).filter((e) => FEATURE_DIR_PATTERN.test(e))
     : [];
-  const nums = entries.map((e) => parseInt(e.slice(1), 10));
+  const nums = entries.map((e) => {
+    const id = extractIdFromDir(e);
+    return id ? parseInt(id.slice(4), 10) : 0;
+  });
   const max = nums.length > 0 ? Math.max(...nums) : 0;
-  return `F${String(max + 1).padStart(2, "0")}`;
+  return `FEAT${String(max + 1).padStart(3, "0")}`;
 }

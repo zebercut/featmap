@@ -10,8 +10,12 @@ export function generateManifest(featuresDir: string): FeatureManifest {
     const dirs = fs.readdirSync(featuresDir, { withFileTypes: true });
     for (const dir of dirs) {
       if (!dir.isDirectory() || !FEATURE_DIR_PATTERN.test(dir.name)) continue;
-      const fp = path.join(featuresDir, dir.name, "feature.json");
-      if (!fs.existsSync(fp)) continue;
+      // Find the .json file inside the directory
+      const dirPath = path.join(featuresDir, dir.name);
+      const files = fs.readdirSync(dirPath);
+      const jsonFile = files.find((f) => f.endsWith(".json") && !f.startsWith("_"));
+      if (!jsonFile) continue;
+      const fp = path.join(dirPath, jsonFile);
       try {
         const raw = JSON.parse(fs.readFileSync(fp, "utf-8"));
         const result = validateFeature(raw);

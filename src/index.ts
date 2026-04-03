@@ -1,6 +1,7 @@
 // Core API
 export {
   loadFeature,
+  loadFeatureById,
   loadAllFeatures,
   filterFeatures,
   sortFeatures,

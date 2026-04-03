@@ -1,7 +1,24 @@
 export type MoSCoW = "MUST" | "SHOULD" | "COULD" | "WONT";
 export type FeatureStatus = "Planned" | "In Progress" | "Done" | "Rejected";
 
-export const FEATURE_DIR_PATTERN = /^F\d{2,}$/;
+export const FEATURE_DIR_PATTERN = /^FEAT\d{3,}_/;
+export const FEATURE_ID_PATTERN = /^FEAT\d{3,}$/;
+
+export function slugify(title: string): string {
+  return title
+    .replace(/[^a-zA-Z0-9\s]/g, "")
+    .trim()
+    .replace(/\s+/g, "_");
+}
+
+export function featureDirName(id: string, title: string): string {
+  return `${id}_${slugify(title)}`;
+}
+
+export function extractIdFromDir(dirName: string): string | null {
+  const match = dirName.match(/^(FEAT\d{3,})_/);
+  return match ? match[1] : null;
+}
 
 export interface Feature {
   id: string;
