@@ -304,11 +304,12 @@ function makeEditable(td, featureId, field, currentValue, type) {
 }
 
 function populateFilters() {
-  ['filterStatus','filterMoscow','filterCategory','filterRelease','filterTag'].forEach(id => {
+  const ids = ['filterStatus','filterMoscow','filterCategory','filterRelease','filterTag'];
+  const saved = {};
+  ids.forEach(id => { saved[id] = document.getElementById(id).value; });
+  ids.forEach(id => {
     const sel = document.getElementById(id);
-    const val = sel.value;
     while (sel.options.length > 1) sel.remove(1);
-    sel.value = val;
   });
   const statuses = [...new Set(DATA.map(f => f.status))].sort();
   const moscows = [...new Set(DATA.map(f => f.moscow))];
@@ -321,6 +322,8 @@ function populateFilters() {
   categories.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; document.getElementById('filterCategory').appendChild(o); });
   releases.forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r; document.getElementById('filterRelease').appendChild(o); });
   tags.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; document.getElementById('filterTag').appendChild(o); });
+
+  ids.forEach(id => { document.getElementById(id).value = saved[id]; });
 }
 
 function getFiltered() {
