@@ -292,12 +292,12 @@ function getExistingValues(field) {
 // --- Outside-click cleanup (#4: prevents listener leaks) ---
 let activeCleanup = null;
 function registerOutsideClick(wrap, onClose) {
-  // Remove any previous listener before adding a new one
   if (activeCleanup) { activeCleanup(); activeCleanup = null; }
-  // Track the frame so we ignore clicks from the same event loop tick that opened the combo
   let armed = false;
   function handler(ev) {
     if (!armed) return;
+    // If DOM was destroyed (e.g. SSE refresh), just clean up
+    if (!document.contains(wrap)) { cleanup(); return; }
     if (!wrap.contains(ev.target)) { cleanup(); onClose(); }
   }
   function cleanup() {
@@ -306,12 +306,12 @@ function registerOutsideClick(wrap, onClose) {
   }
   activeCleanup = cleanup;
   document.addEventListener('click', handler, true);
-  // Arm on next frame — so the opening click doesn't immediately close
   requestAnimationFrame(() => { armed = true; });
 }
 
 // --- Combobox: dropdown with existing values + "New..." option ---
 function openCombo(td, featureId, field, currentValue, fixedOptions) {
+  const savedHtml = td.innerHTML;
   td.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'combo';
@@ -361,20 +361,21 @@ function openCombo(td, featureId, field, currentValue, fixedOptions) {
           ev.preventDefault();
           apiUpdate(featureId, { [field]: inp.value.trim() });
         }
-        if (ev.key === 'Escape') { ev.preventDefault(); render(); }
+        if (ev.key === 'Escape') { ev.preventDefault(); td.innerHTML = savedHtml; }
       });
-      inp.addEventListener('blur', () => { setTimeout(() => render(), 150); });
+      inp.addEventListener('blur', () => { setTimeout(() => { if (document.contains(td) && !td.querySelector('.combo')) td.innerHTML = savedHtml; }, 150); });
     }
   }
 
   buildItems(false);
   wrap.appendChild(menu);
   td.appendChild(wrap);
-  registerOutsideClick(wrap, () => render());
+  registerOutsideClick(wrap, () => { td.innerHTML = savedHtml; });
 }
 
 // --- Tags combobox: multi-select, batched commit on close (#5) ---
 function openTagsCombo(td, featureId, currentTags) {
+  const savedHtml = td.innerHTML;
   td.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'combo';
@@ -419,13 +420,13 @@ function openTagsCombo(td, featureId, currentTags) {
         inp.value = '';
         buildItems();
       }
-      if (ev.key === 'Escape') { ev.preventDefault(); commitAndClose(); }
+      if (ev.key === 'Escape') { ev.preventDefault(); if (activeCleanup) { activeCleanup(); activeCleanup = null; } commitAndClose(); }
     });
   }
 
   function commitAndClose() {
     if (dirty) apiUpdate(featureId, { tags: [...selected] });
-    render();
+    td.innerHTML = savedHtml;
   }
 
   buildItems();

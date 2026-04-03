@@ -354,8 +354,24 @@ export function startServer(featuresDir: string, port: number = 3456): void {
 
   watchFeatures();
 
-  server.listen(port, () => {
-    console.log(`featmap server running at http://localhost:${port}`);
+  const MAX_PORT_ATTEMPTS = 10;
+  let attempt = 0;
+  let currentPort = port;
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE" && attempt < MAX_PORT_ATTEMPTS) {
+      attempt++;
+      currentPort++;
+      console.log(`Port ${currentPort - 1} in use, trying ${currentPort}...`);
+      server.listen(currentPort);
+    } else {
+      console.error(`Failed to start server: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+  server.listen(currentPort, () => {
+    console.log(`featmap server running at http://localhost:${currentPort}`);
     console.log(`Watching: ${featuresDir}`);
     console.log("Press Ctrl+C to stop");
   });
