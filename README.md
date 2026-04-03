@@ -1,27 +1,43 @@
 # featmap
 
-File-per-feature backlog management. Types, CRUD, validation, manifest generation, HTML viewer, live server, and CLI.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json)
+
+File-per-feature backlog management. CLI, TypeScript API, validation, HTML viewer with live editing.
 
 Each feature is a folder (e.g. `FEAT001_user_authentication/`) containing a JSON metadata file and a Markdown doc. A `_manifest.json` index and `features.html` viewer are auto-regenerated on every mutation.
 
-## Add to a project
+No database. No framework. Plain files, validated by JSON Schema, managed by CLI.
 
-### 1. Add as a git submodule
+## Quick start
 
 ```bash
+# Clone or add as submodule
 git submodule add https://github.com/zebercut/featmap.git packages/featmap
 cd packages/featmap && npm install
-```
 
-### 2. Create a features directory
-
-```bash
+# Create your features directory (in your project, not inside featmap)
 mkdir -p features
+
+# Add your first feature
+npx ts-node packages/featmap/src/cli.ts add --dir=./features \
+  --title="User authentication" --category="Auth" --moscow=MUST --priority=1
 ```
 
-This is where your feature data lives (inside your project, not inside featmap).
+This creates:
 
-### 3. Set the features path
+```
+features/
+  _manifest.json                            # auto-generated index
+  features.html                             # auto-generated HTML viewer
+  FEAT001_user_authentication/
+    FEAT001_user_authentication.json        # structured metadata
+    FEAT001_user_authentication.md          # rich documentation template
+```
+
+## Setup
+
+### Set the features path
 
 Pick one:
 
@@ -35,9 +51,7 @@ export FEATMAP_DIR=./features
 npx ts-node packages/featmap/src/cli.ts list --dir=./features
 ```
 
-**Option C — Create a wrapper script** (recommended):
-
-Create an npm script that auto-injects `--dir`:
+**Option C — npm script wrapper** (recommended):
 ```json
 {
   "scripts": {
@@ -47,56 +61,26 @@ Create an npm script that auto-injects `--dir`:
 ```
 Then: `npm run feat -- list`, `npm run feat -- add --title="..." --category="..." --moscow=MUST`
 
-### 4. Start using it
-
-```bash
-# Add your first feature
-npx ts-node packages/featmap/src/cli.ts add --dir=./features \
-  --title="User authentication" --category="Auth" --moscow=MUST --priority=1
-
-# This creates:
-#   features/FEAT001_user_authentication/
-#     FEAT001_user_authentication.json   — structured metadata
-#     FEAT001_user_authentication.md     — rich documentation template
-#   features/_manifest.json              — auto-generated index
-#   features.html                        — auto-generated HTML viewer
-```
-
-### 5. Add to .gitignore (optional)
+### .gitignore (optional)
 
 ```gitignore
-# Generated files (regenerated on every mutation)
 features.html
 ```
 
-The HTML viewer is auto-generated, so you may not want to track it in git. The `_manifest.json` is also generated but is useful to commit for quick lookups without running code.
+The HTML viewer is auto-generated. The `_manifest.json` is also generated but useful to commit for quick lookups.
 
 ## CLI
 
 ```bash
-# List all features
 featmap list [--status=X] [--category=X] [--moscow=X] [--release=X] [--sort=X]
-
-# Show feature detail
 featmap show FEAT001
-
-# Add a feature
 featmap add --title="..." --category="..." --moscow=MUST [--priority=N] [--release=v1.0] [--tags=admin,api]
-
-# Update a feature
-featmap update FEAT001 --status="In Progress" [--priority=N] [--moscow=X] [--release=v1.0] [--tags=admin,api]
-
-# Regenerate manifest + HTML
+featmap update FEAT001 --status="In Progress" [--priority=N] [--moscow=X] [--release=v1.0]
 featmap regen
-
-# Generate HTML viewer manually
 featmap html [--out=path]
-
-# Start live server with inline editing
 featmap serve [--port=3456]
-
-# Summary stats
 featmap stats
+featmap help
 ```
 
 Replace `featmap` with `npx ts-node packages/featmap/src/cli.ts --dir=./features` or your wrapper script.
@@ -107,14 +91,19 @@ Replace `featmap` with `npx ts-node packages/featmap/src/cli.ts --dir=./features
 featmap serve --port=3456
 ```
 
-Starts an HTTP server with:
+- Dark/light theme toggle (persisted)
+- Inline editing — click any cell to edit via dropdown or text input
+- Combobox dropdowns — pick from existing values or add new ones
+- Click feature title to view its Markdown doc in a slide-out panel
+- SSE (Server-Sent Events) — real-time updates across browser tabs
+- REST API: `GET /api/features`, `GET /api/features/:id/doc`, `POST /api/features/:id`
+- File watchers — disk edits push to the browser automatically
+- Auto-port — if the port is busy, tries the next available (up to 10 attempts)
+- Pagination with configurable page size
+- Sortable columns with sticky headers
+- Group by: status, category, MoSCoW, release, tag
 
-- The HTML viewer with inline editing enabled
-- SSE (Server-Sent Events) for real-time updates across browser tabs
-- REST API: `GET /api/features`, `POST /api/features/:id`
-- File watchers — edits to JSON files on disk are pushed to the browser automatically
-
-## API
+## TypeScript API
 
 ```typescript
 import {
@@ -127,9 +116,8 @@ import {
   nextFeatureId,
   generateManifest,
   generateHtml,
-  buildHtmlFromFeatures,
   startServer,
-} from "./packages/featmap/src/index";
+} from "featmap";
 
 const features = loadAllFeatures("./features");
 const planned = filterFeatures(features, { status: "Planned" });
@@ -161,17 +149,19 @@ Each feature folder is named `FEAT001_snake_case_title/` and contains a JSON fil
 |-------|------|-------------|
 | `id` | `string` | Auto-generated (`FEAT001`, `FEAT002`, ...) |
 | `title` | `string` | Feature name |
-| `category` | `string` | Product domain (e.g. Auth, Tasks, Platform) |
+| `category` | `string` | Product domain |
 | `moscow` | `enum` | `MUST`, `SHOULD`, `COULD`, `WONT` |
 | `priority` | `int \| null` | Numeric priority (lower = higher) |
 | `status` | `enum` | `Planned`, `In Progress`, `Done`, `Rejected` |
-| `release` | `string \| null` | Target release (e.g. `v1.0`, `v2.0`) |
-| `tags` | `string[]` | Labels for cross-cutting concerns (e.g. `admin`, `api`, `frontend`) |
+| `release` | `string \| null` | Target release (e.g. `v1.0`) |
+| `tags` | `string[]` | Labels for cross-cutting concerns |
 | `okrLink` | `string \| null` | Optional link to an OKR |
 
-## Feature README
+Validated by JSON Schema (`schema/feature.schema.json`) on every read and write.
 
-Each feature gets a rich Markdown template on creation with sections for:
+## Feature documentation
+
+Each feature gets a Markdown template on creation with sections for:
 
 - Summary, Problem Statement
 - User Stories with acceptance criteria
@@ -181,41 +171,25 @@ Each feature gets a rich Markdown template on creation with sections for:
 - Architecture Notes, Implementation file map
 - Testing Notes, Open Questions
 
-The template is created once on `add` and never overwritten — it's yours to edit.
-
-## HTML viewer
-
-Auto-generated `features.html` with:
-
-- Full-text search (ID, title, tags)
-- Filter by: status, MoSCoW, category, release, tag
-- Sort by clicking column headers
-- Group by: status, category, MoSCoW, release, tag
-- Dark theme, standalone (no external dependencies)
-
-In live server mode (`featmap serve`), cells become editable inline with toast feedback.
+The template is created once on `add` and never overwritten.
 
 ## Auto-generated files
 
 | File | Trigger | Purpose |
 |------|---------|---------|
 | `_manifest.json` | Every `add`/`update` | Machine-readable index of all features |
-| `features.html` | Every `add`/`update` | Human-readable HTML viewer |
+| `features.html` | Every `add`/`update` | Standalone HTML viewer |
 | `*.md` (per feature) | On `add` (once) | Rich documentation template |
 
-## Directory structure
+## Requirements
 
-```
-features/
-  _manifest.json
-  FEAT001_user_authentication/
-    FEAT001_user_authentication.json
-    FEAT001_user_authentication.md
-  FEAT002_task_dashboard/
-    FEAT002_task_dashboard.json
-    FEAT002_task_dashboard.md
-```
+- Node.js 18+
+- TypeScript 5+ (for type checking, not required at runtime with ts-node)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT
+[MIT](LICENSE) -- Copyright (c) 2026 [Farzin](https://github.com/zebercut)

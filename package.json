@@ -1,7 +1,27 @@
 {
   "name": "featmap",
   "version": "1.0.0",
-  "description": "File-per-feature backlog management — types, CRUD, validation, CLI",
+  "description": "File-per-feature backlog management. CLI, TypeScript API, validation, HTML viewer with live editing.",
+  "license": "MIT",
+  "author": "Farzin (https://github.com/zebercut)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zebercut/featmap.git"
+  },
+  "homepage": "https://github.com/zebercut/featmap#readme",
+  "bugs": {
+    "url": "https://github.com/zebercut/featmap/issues"
+  },
+  "keywords": [
+    "feature",
+    "backlog",
+    "project-management",
+    "cli",
+    "file-per-feature",
+    "moscow",
+    "prioritization",
+    "html-viewer"
+  ],
   "main": "src/index.ts",
   "bin": {
     "featmap": "src/cli.ts"
