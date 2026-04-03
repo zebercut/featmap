@@ -5,6 +5,145 @@ import { loadAllFeatures, updateFeature } from "./loader";
 import { buildHtmlFromFeatures } from "./html-generator";
 import { FEATURE_DIR_PATTERN } from "./types";
 
+function findFeatureDir(featuresDir: string, id: string): string | null {
+  if (!fs.existsSync(featuresDir)) return null;
+  const entries = fs.readdirSync(featuresDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name.startsWith(id + "_")) return entry.name;
+  }
+  return null;
+}
+
+function findMdFile(dirPath: string): string | null {
+  const files = fs.readdirSync(dirPath);
+  for (const file of files) {
+    if (file.endsWith(".md") && !file.startsWith("_")) return file;
+  }
+  return null;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function inlineMarkdown(text: string): string {
+  return text
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/_(.+?)_/g, "<em>$1</em>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+}
+
+function renderMarkdown(src: string): string {
+  const lines = src.split("\n");
+  const out: string[] = [];
+  let inCode = false;
+  let inTable = false;
+  let inList = false;
+  let listTag = "ul";
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Fenced code blocks
+    if (line.startsWith("```")) {
+      if (inCode) { out.push("</code></pre>"); inCode = false; }
+      else { out.push("<pre><code>"); inCode = true; }
+      continue;
+    }
+    if (inCode) { out.push(escHtml(line) + "\n"); continue; }
+
+    // Close list if not a list item
+    const isUl = /^\s*[-*]\s/.test(line);
+    const isOl = /^\s*\d+\.\s/.test(line);
+    const isCheckbox = /^\s*[-*]\s\[[ x]\]\s/.test(line);
+    if (inList && !isUl && !isOl && line.trim() !== "") {
+      out.push(`</${listTag}>`); inList = false;
+    }
+
+    // Close table if not a table row
+    if (inTable && !line.trim().startsWith("|")) {
+      out.push("</tbody></table>"); inTable = false;
+    }
+
+    // Blank line
+    if (line.trim() === "") continue;
+
+    // Headings
+    if (line.startsWith("### ")) { out.push(`<h3>${inlineMarkdown(line.slice(4))}</h3>`); continue; }
+    if (line.startsWith("## ")) { out.push(`<h2>${inlineMarkdown(line.slice(3))}</h2>`); continue; }
+    if (line.startsWith("# ")) { out.push(`<h1>${inlineMarkdown(line.slice(2))}</h1>`); continue; }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) { out.push("<hr>"); continue; }
+
+    // Blockquote
+    if (line.startsWith("> ")) { out.push(`<blockquote><p>${inlineMarkdown(line.slice(2))}</p></blockquote>`); continue; }
+
+    // Table
+    if (line.trim().startsWith("|") && line.includes("|")) {
+      const cells = line.split("|").slice(1, -1).map(c => c.trim());
+      const nextLine = lines[i + 1] || "";
+      // Header row (next line is separator)
+      if (/^\|[\s\-:|]+\|$/.test(nextLine.trim())) {
+        if (!inTable) { out.push("<table>"); inTable = true; }
+        out.push("<thead><tr>" + cells.map(c => `<th>${inlineMarkdown(c)}</th>`).join("") + "</tr></thead><tbody>");
+        i++; // skip separator
+        continue;
+      }
+      if (inTable) {
+        out.push("<tr>" + cells.map(c => `<td>${inlineMarkdown(c)}</td>`).join("") + "</tr>");
+        continue;
+      }
+    }
+
+    // Checkbox list items
+    if (isCheckbox) {
+      if (!inList || listTag !== "ul") {
+        if (inList) out.push(`</${listTag}>`);
+        out.push("<ul>"); inList = true; listTag = "ul";
+      }
+      const content = line.replace(/^\s*[-*]\s/, "");
+      if (content.startsWith("[x] ")) {
+        out.push(`<li><input type="checkbox" checked disabled>${inlineMarkdown(content.slice(4))}</li>`);
+      } else {
+        out.push(`<li><input type="checkbox" disabled>${inlineMarkdown(content.slice(3))}</li>`);
+      }
+      continue;
+    }
+
+    // Unordered list
+    if (isUl) {
+      if (!inList || listTag !== "ul") {
+        if (inList) out.push(`</${listTag}>`);
+        out.push("<ul>"); inList = true; listTag = "ul";
+      }
+      out.push(`<li>${inlineMarkdown(line.replace(/^\s*[-*]\s/, ""))}</li>`);
+      continue;
+    }
+
+    // Ordered list
+    if (isOl) {
+      if (!inList || listTag !== "ol") {
+        if (inList) out.push(`</${listTag}>`);
+        out.push("<ol>"); inList = true; listTag = "ol";
+      }
+      out.push(`<li>${inlineMarkdown(line.replace(/^\s*\d+\.\s/, ""))}</li>`);
+      continue;
+    }
+
+    // Paragraph
+    out.push(`<p>${inlineMarkdown(line)}</p>`);
+  }
+
+  if (inCode) out.push("</code></pre>");
+  if (inList) out.push(`</${listTag}>`);
+  if (inTable) out.push("</tbody></table>");
+  return out.join("\n");
+}
+
 const MAX_BODY_SIZE = 65536; // 64KB
 
 export function startServer(featuresDir: string, port: number = 3456): void {
@@ -118,6 +257,28 @@ export function startServer(featuresDir: string, port: number = 3456): void {
         const idx = sseClients.indexOf(res);
         if (idx !== -1) sseClients.splice(idx, 1);
       });
+      return;
+    }
+
+    // GET /api/features/:id/doc — serve raw markdown for the feature
+    const docMatch = url.match(/^\/api\/features\/(FEAT\d{3,})\/doc$/);
+    if (req.method === "GET" && docMatch) {
+      const id = docMatch[1];
+      const dirName = findFeatureDir(featuresDir, id);
+      if (!dirName) {
+        jsonResponse(res, 404, { error: `Feature ${id} not found` });
+        return;
+      }
+      const dirPath = path.join(featuresDir, dirName);
+      const mdFile = findMdFile(dirPath);
+      if (!mdFile) {
+        jsonResponse(res, 404, { error: `No markdown file found for ${id}` });
+        return;
+      }
+      const md = fs.readFileSync(path.join(dirPath, mdFile), "utf-8");
+      const html = renderMarkdown(md);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+      res.end(html);
       return;
     }
 

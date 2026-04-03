@@ -20,19 +20,24 @@ export function buildHtmlFromFeatures(features: Feature[], opts: HtmlOptions = {
 
 function buildHtml(json: string, live: boolean): string {
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>featmap</title>
 <style>
-  :root {
+  [data-theme="dark"] {
     --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
     --border: #30363d; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681;
     --accent: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149; --blue: #58a6ff; --gray: #6e7681;
   }
+  [data-theme="light"] {
+    --bg: #ffffff; --bg2: #f6f8fa; --bg3: #e1e4e8;
+    --border: #d0d7de; --text: #1f2328; --text2: #656d76; --text3: #8b949e;
+    --accent: #0969da; --green: #1a7f37; --yellow: #9a6700; --red: #cf222e; --blue: #0969da; --gray: #6e7681;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); padding: 24px; transition: background 0.2s, color 0.2s; }
   h1 { font-size: 20px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
   h1 .live { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #3fb95022; color: var(--green); font-weight: 500; }
 
@@ -73,7 +78,43 @@ function buildHtml(json: string, live: boolean): string {
 
   .id-col { font-family: monospace; color: var(--text3); white-space: nowrap; }
   .title-col { font-weight: 500; }
+  .title-link { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .title-link:hover { text-decoration: underline; }
   .empty { text-align: center; padding: 40px; color: var(--text3); }
+
+  /* Theme toggle */
+  .theme-toggle { background: var(--bg2); border: 1px solid var(--border); color: var(--text2); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-left: auto; }
+  .theme-toggle:hover { border-color: var(--accent); color: var(--text); }
+
+  /* Doc panel */
+  .doc-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+  .doc-overlay.open { opacity: 1; pointer-events: auto; }
+  .doc-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(720px, 85vw); background: var(--bg); border-left: 1px solid var(--border); z-index: 600; transform: translateX(100%); transition: transform 0.25s ease; overflow-y: auto; padding: 32px; }
+  .doc-panel.open { transform: translateX(0); }
+  .doc-close { position: sticky; top: 0; float: right; background: var(--bg2); border: 1px solid var(--border); color: var(--text2); width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; z-index: 1; }
+  .doc-close:hover { border-color: var(--accent); color: var(--text); }
+  .doc-loading { color: var(--text3); padding: 40px; text-align: center; }
+
+  /* Rendered markdown */
+  .md h1 { font-size: 22px; font-weight: 700; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .md h2 { font-size: 18px; font-weight: 600; margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .md h3 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+  .md p { margin: 8px 0; line-height: 1.6; }
+  .md ul, .md ol { margin: 8px 0 8px 24px; line-height: 1.6; }
+  .md li { margin: 4px 0; }
+  .md code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; font-family: 'SFMono-Regular', Consolas, monospace; }
+  .md pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 16px; overflow-x: auto; margin: 12px 0; }
+  .md pre code { background: none; padding: 0; }
+  .md blockquote { border-left: 3px solid var(--accent); padding-left: 16px; color: var(--text2); margin: 12px 0; }
+  .md hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+  .md table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  .md th, .md td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+  .md th { background: var(--bg2); font-weight: 600; }
+  .md strong { font-weight: 600; }
+  .md em { font-style: italic; color: var(--text2); }
+  .md a { color: var(--accent); text-decoration: none; }
+  .md a:hover { text-decoration: underline; }
+  .md input[type="checkbox"] { margin-right: 6px; }
 
   /* Editable cells (live mode only) */
   .editable { cursor: pointer; position: relative; }
@@ -88,7 +129,7 @@ function buildHtml(json: string, live: boolean): string {
 </style>
 </head>
 <body>
-<h1>featmap${live ? ' <span class="live">live</span>' : ''}</h1>
+<h1>featmap${live ? ' <span class="live">live</span>' : ''} <button class="theme-toggle" id="themeToggle" title="Toggle theme">☀️</button></h1>
 
 <div class="toolbar">
   <input class="search" id="search" type="text" placeholder="Search features...">
@@ -110,6 +151,11 @@ function buildHtml(json: string, live: boolean): string {
 <div class="stats" id="stats"></div>
 <div id="content"></div>
 <div id="toasts"></div>
+<div class="doc-overlay" id="docOverlay"></div>
+<div class="doc-panel" id="docPanel">
+  <button class="doc-close" id="docClose">&times;</button>
+  <div class="md" id="docContent"></div>
+</div>
 
 <script>
 let DATA = ` + json + `;
@@ -117,6 +163,44 @@ const LIVE = ${live};
 const statusClass = s => 'badge-' + s.toLowerCase().replace(/\\s+/g, '');
 const moscowClass = m => 'moscow-' + m.toLowerCase();
 let sortField = 'id', sortDir = 'asc';
+
+// --- Theme toggle ---
+const themeBtn = document.getElementById('themeToggle');
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  themeBtn.textContent = t === 'dark' ? '☀️' : '🌙';
+  try { localStorage.setItem('featmap-theme', t); } catch {}
+}
+themeBtn.addEventListener('click', () => {
+  setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+});
+try { const saved = localStorage.getItem('featmap-theme'); if (saved) setTheme(saved); } catch {}
+
+// --- Doc panel ---
+const docOverlay = document.getElementById('docOverlay');
+const docPanel = document.getElementById('docPanel');
+const docContent = document.getElementById('docContent');
+const docClose = document.getElementById('docClose');
+
+function openDoc(featureId) {
+  if (!LIVE) return;
+  docContent.innerHTML = '<div class="doc-loading">Loading...</div>';
+  docOverlay.classList.add('open');
+  docPanel.classList.add('open');
+  fetch('/api/features/' + featureId + '/doc')
+    .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
+    .then(html => { docContent.innerHTML = html; })
+    .catch(() => { docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>'; });
+}
+
+function closeDoc() {
+  docOverlay.classList.remove('open');
+  docPanel.classList.remove('open');
+}
+
+docClose.addEventListener('click', closeDoc);
+docOverlay.addEventListener('click', closeDoc);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDoc(); });
 
 const STATUSES = ['Planned', 'In Progress', 'Done', 'Rejected'];
 const MOSCOWS = ['MUST', 'SHOULD', 'COULD', 'WONT'];
@@ -324,7 +408,16 @@ function renderTable(features) {
 
       const tdTitle = document.createElement('td');
       tdTitle.className = 'title-col';
-      tdTitle.textContent = f.title;
+      if (LIVE) {
+        const link = document.createElement('a');
+        link.className = 'title-link';
+        link.textContent = f.title;
+        link.href = '#';
+        link.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openDoc(f.id); });
+        tdTitle.appendChild(link);
+      } else {
+        tdTitle.textContent = f.title;
+      }
       makeEditable(tdTitle, f.id, 'title', f.title, 'text');
       tr.appendChild(tdTitle);
 
