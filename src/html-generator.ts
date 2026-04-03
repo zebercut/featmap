@@ -13,7 +13,8 @@ export function generateHtml(featuresDir: string, outPath: string): void {
 }
 
 export function buildHtmlFromFeatures(features: Feature[], opts: HtmlOptions = {}): string {
-  const json = JSON.stringify(features);
+  // Escape </ to prevent </script> breakout (stored XSS via feature titles)
+  const json = JSON.stringify(features).replace(/<\//g, "<\\/");
   const live = opts.live ?? false;
   return buildHtml(json, live);
 }
@@ -50,11 +51,12 @@ function buildHtml(json: string, live: boolean): string {
   .stats { display: flex; gap: 16px; margin-bottom: 16px; font-size: 13px; color: var(--text2); }
   .stats span { background: var(--bg2); padding: 4px 10px; border-radius: 4px; }
 
-  .group-header { font-size: 14px; font-weight: 600; color: var(--text2); padding: 12px 0 6px; border-bottom: 1px solid var(--border); margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+  .group-header td { font-size: 14px; font-weight: 600; color: var(--text2); padding: 12px; background: var(--bg2); border-bottom: 1px solid var(--border); }
   .group-header .count { font-weight: 400; color: var(--text3); font-size: 12px; }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 8px 12px; color: var(--text2); font-weight: 600; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
+  thead { position: sticky; top: 0; z-index: 50; }
+  th { text-align: left; padding: 8px 12px; color: var(--text2); font-weight: 600; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; background: var(--bg); }
   th:hover { color: var(--accent); }
   th.sorted { color: var(--accent); }
   th.sorted::after { content: ' \\25B2'; font-size: 10px; }
@@ -62,11 +64,26 @@ function buildHtml(json: string, live: boolean): string {
   td { padding: 8px 12px; border-bottom: 1px solid var(--bg3); vertical-align: top; }
   tr:hover td { background: var(--bg2); }
 
+  /* Pagination */
+  .pagination { display: flex; align-items: center; gap: 12px; padding: 12px 0; font-size: 13px; color: var(--text2); }
+  div.pagination select { background: var(--bg2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+  .page-btn { background: var(--bg2); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  .page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .page-btn:disabled { opacity: 0.4; cursor: default; }
+  .page-nums { display: flex; gap: 4px; }
+  .page-num { background: var(--bg2); border: 1px solid var(--border); color: var(--text2); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; min-width: 28px; text-align: center; }
+  .page-num:hover { border-color: var(--accent); color: var(--accent); }
+  .page-num.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-  .badge-planned { background: #58a6ff22; color: var(--blue); }
-  .badge-inprogress { background: #d2992222; color: var(--yellow); }
-  .badge-done { background: #3fb95022; color: var(--green); }
-  .badge-rejected { background: #f8514922; color: var(--red); }
+  [data-theme="dark"] .badge-planned { background: #58a6ff22; color: var(--blue); }
+  [data-theme="dark"] .badge-inprogress { background: #d2992222; color: var(--yellow); }
+  [data-theme="dark"] .badge-done { background: #3fb95022; color: var(--green); }
+  [data-theme="dark"] .badge-rejected { background: #f8514922; color: var(--red); }
+  [data-theme="light"] .badge-planned { background: #0969da18; color: var(--blue); }
+  [data-theme="light"] .badge-inprogress { background: #9a670018; color: var(--yellow); }
+  [data-theme="light"] .badge-done { background: #1a7f3718; color: var(--green); }
+  [data-theme="light"] .badge-rejected { background: #cf222e18; color: var(--red); }
 
   .moscow-must { color: var(--red); font-weight: 700; }
   .moscow-should { color: var(--yellow); font-weight: 600; }
@@ -74,12 +91,17 @@ function buildHtml(json: string, live: boolean): string {
   .moscow-wont { color: var(--gray); }
 
   .tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; background: var(--bg3); color: var(--text2); margin: 1px 2px; }
-  .release-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #8b5cf622; color: #a78bfa; }
+  [data-theme="dark"] .release-badge { background: #8b5cf622; color: #a78bfa; }
+  [data-theme="light"] .release-badge { background: #7c3aed18; color: #6d28d9; }
+  .release-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 
   .id-col { font-family: monospace; color: var(--text3); white-space: nowrap; }
   .title-col { font-weight: 500; }
   .title-link { color: var(--accent); cursor: pointer; text-decoration: none; }
   .title-link:hover { text-decoration: underline; }
+  .title-edit { opacity: 0; margin-left: 6px; cursor: pointer; color: var(--text3); font-size: 11px; transition: opacity 0.15s; }
+  tr:hover .title-edit { opacity: 1; }
+  .title-edit:hover { color: var(--accent); }
   .empty { text-align: center; padding: 40px; color: var(--text3); }
 
   /* Theme toggle */
@@ -117,13 +139,23 @@ function buildHtml(json: string, live: boolean): string {
   .md input[type="checkbox"] { margin-right: 6px; }
 
   /* Editable cells (live mode only) */
-  .editable { cursor: pointer; position: relative; }
+  .editable { cursor: pointer; position: relative; overflow: visible; }
   .editable:hover { outline: 1px dashed var(--border); outline-offset: 2px; border-radius: 3px; }
   .edit-input { background: var(--bg2); border: 1px solid var(--accent); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px; font-family: inherit; width: 100%; }
-  .edit-select { background: var(--bg2); border: 1px solid var(--accent); color: var(--text); padding: 4px 6px; border-radius: 4px; font-size: 12px; }
+
+  /* Combobox dropdown */
+  .combo { position: relative; display: inline-block; min-width: 80px; }
+  .combo-current { background: var(--bg2); border: 1px solid var(--accent); color: var(--text); padding: 4px 8px; border-radius: 4px 4px 0 0; font-size: 12px; cursor: default; }
+  .combo-menu { position: absolute; top: 100%; left: 0; right: 0; min-width: 160px; max-height: 200px; overflow-y: auto; background: var(--bg2); border: 1px solid var(--accent); border-top: none; border-radius: 0 0 6px 6px; z-index: 100; }
+  .combo-item { padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--text); white-space: nowrap; }
+  .combo-item:hover { background: var(--bg3); }
+  .combo-item.selected { color: var(--accent); font-weight: 600; }
+  .combo-new { color: var(--accent); font-style: italic; border-top: 1px solid var(--border); }
+  .combo-new-input { width: 100%; background: var(--bg); border: none; border-top: 1px solid var(--border); color: var(--text); padding: 6px 10px; font-size: 12px; font-family: inherit; outline: none; }
 
   /* Toast */
-  .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 1000; transition: opacity 0.3s; }
+  #toasts { position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex; flex-direction: column-reverse; gap: 8px; pointer-events: none; }
+  .toast { padding: 10px 16px; border-radius: 8px; font-size: 13px; transition: opacity 0.3s; pointer-events: auto; }
   .toast-ok { background: #3fb95033; color: var(--green); border: 1px solid #3fb95044; }
   .toast-err { background: #f8514933; color: var(--red); border: 1px solid #f8514944; }
 </style>
@@ -163,6 +195,8 @@ const LIVE = ${live};
 const statusClass = s => 'badge-' + s.toLowerCase().replace(/\\s+/g, '');
 const moscowClass = m => 'moscow-' + m.toLowerCase();
 let sortField = 'id', sortDir = 'asc';
+let currentPage = 0, pageSize = 25;
+try { const s = localStorage.getItem('featmap-pageSize'); if (s) pageSize = parseInt(s, 10); } catch {}
 
 // --- Theme toggle ---
 const themeBtn = document.getElementById('themeToggle');
@@ -200,7 +234,9 @@ function closeDoc() {
 
 docClose.addEventListener('click', closeDoc);
 docOverlay.addEventListener('click', closeDoc);
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDoc(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && docPanel.classList.contains('open')) { e.stopImmediatePropagation(); closeDoc(); }
+});
 
 const STATUSES = ['Planned', 'In Progress', 'Done', 'Rejected'];
 const MOSCOWS = ['MUST', 'SHOULD', 'COULD', 'WONT'];
@@ -245,48 +281,175 @@ async function apiUpdate(id, updates) {
   }
 }
 
+// --- Collect unique values from data for combo dropdowns ---
+function getExistingValues(field) {
+  if (field === 'tags') return [...new Set(DATA.flatMap(f => f.tags))].sort();
+  if (field === 'release') return [...new Set(DATA.map(f => f.release).filter(Boolean))].sort();
+  if (field === 'category') return [...new Set(DATA.map(f => f.category))].sort();
+  return [];
+}
+
+// --- Outside-click cleanup (#4: prevents listener leaks) ---
+let activeCleanup = null;
+function registerOutsideClick(wrap, onClose) {
+  // Remove any previous listener before adding a new one
+  if (activeCleanup) { activeCleanup(); activeCleanup = null; }
+  // Track the frame so we ignore clicks from the same event loop tick that opened the combo
+  let armed = false;
+  function handler(ev) {
+    if (!armed) return;
+    if (!wrap.contains(ev.target)) { cleanup(); onClose(); }
+  }
+  function cleanup() {
+    document.removeEventListener('click', handler, true);
+    activeCleanup = null;
+  }
+  activeCleanup = cleanup;
+  document.addEventListener('click', handler, true);
+  // Arm on next frame — so the opening click doesn't immediately close
+  requestAnimationFrame(() => { armed = true; });
+}
+
+// --- Combobox: dropdown with existing values + "New..." option ---
+function openCombo(td, featureId, field, currentValue, fixedOptions) {
+  td.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'combo';
+
+  // Show current value as the visible header
+  const header = document.createElement('div');
+  header.className = 'combo-current';
+  header.textContent = currentValue || '\\u2014';
+  wrap.appendChild(header);
+
+  const options = fixedOptions || getExistingValues(field);
+  const allowNew = !fixedOptions;
+
+  const menu = document.createElement('div');
+  menu.className = 'combo-menu';
+
+  function buildItems(showInput) {
+    menu.innerHTML = '';
+    options.forEach(val => {
+      const item = document.createElement('div');
+      item.className = 'combo-item' + (val === currentValue ? ' selected' : '');
+      item.textContent = val;
+      item.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        apiUpdate(featureId, { [field]: val });
+      });
+      menu.appendChild(item);
+    });
+    if (allowNew && !showInput) {
+      const newItem = document.createElement('div');
+      newItem.className = 'combo-item combo-new';
+      newItem.textContent = '+ New value...';
+      newItem.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        buildItems(true);
+      });
+      menu.appendChild(newItem);
+    }
+    if (showInput) {
+      const inp = document.createElement('input');
+      inp.className = 'combo-new-input';
+      inp.placeholder = 'Type new value...';
+      menu.appendChild(inp);
+      inp.focus();
+      inp.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && inp.value.trim()) {
+          ev.preventDefault();
+          apiUpdate(featureId, { [field]: inp.value.trim() });
+        }
+        if (ev.key === 'Escape') { ev.preventDefault(); render(); }
+      });
+      inp.addEventListener('blur', () => { setTimeout(() => render(), 150); });
+    }
+  }
+
+  buildItems(false);
+  wrap.appendChild(menu);
+  td.appendChild(wrap);
+  registerOutsideClick(wrap, () => render());
+}
+
+// --- Tags combobox: multi-select, batched commit on close (#5) ---
+function openTagsCombo(td, featureId, currentTags) {
+  td.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'combo';
+
+  // Show current tags as the visible header
+  const header = document.createElement('div');
+  header.className = 'combo-current';
+  header.textContent = (currentTags && currentTags.length > 0) ? currentTags.join(', ') : '\\u2014';
+  wrap.appendChild(header);
+
+  const allTags = getExistingValues('tags');
+  const selected = new Set(currentTags || []);
+  let dirty = false;
+
+  const menu = document.createElement('div');
+  menu.className = 'combo-menu';
+
+  function buildItems() {
+    menu.innerHTML = '';
+    const tags = [...new Set([...allTags, ...selected])].sort();
+    tags.forEach(tag => {
+      const item = document.createElement('div');
+      item.className = 'combo-item' + (selected.has(tag) ? ' selected' : '');
+      item.textContent = (selected.has(tag) ? '\\u2713 ' : '  ') + tag;
+      item.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        if (selected.has(tag)) selected.delete(tag); else selected.add(tag);
+        dirty = true;
+        buildItems();
+      });
+      menu.appendChild(item);
+    });
+    const inp = document.createElement('input');
+    inp.className = 'combo-new-input';
+    inp.placeholder = '+ Add tag...';
+    menu.appendChild(inp);
+    inp.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && inp.value.trim()) {
+        ev.preventDefault();
+        selected.add(inp.value.trim());
+        dirty = true;
+        inp.value = '';
+        buildItems();
+      }
+      if (ev.key === 'Escape') { ev.preventDefault(); commitAndClose(); }
+    });
+  }
+
+  function commitAndClose() {
+    if (dirty) apiUpdate(featureId, { tags: [...selected] });
+    render();
+  }
+
+  buildItems();
+  wrap.appendChild(menu);
+  td.appendChild(wrap);
+  registerOutsideClick(wrap, commitAndClose);
+}
+
 // --- Inline editing ---
 function makeEditable(td, featureId, field, currentValue, type) {
   if (!LIVE) return;
   td.classList.add('editable');
   td.addEventListener('click', function handler(e) {
-    if (td.querySelector('input,select')) return;
+    if (td.querySelector('.combo,.edit-input')) return;
     e.stopPropagation();
 
     if (type === 'select-status') {
-      const sel = document.createElement('select');
-      sel.className = 'edit-select';
-      STATUSES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; if (s === currentValue) o.selected = true; sel.appendChild(o); });
-      td.innerHTML = '';
-      td.appendChild(sel);
-      sel.focus();
-      sel.addEventListener('change', () => { apiUpdate(featureId, { [field]: sel.value }); });
-      sel.addEventListener('blur', () => { render(); });
+      openCombo(td, featureId, field, currentValue, STATUSES);
     } else if (type === 'select-moscow') {
-      const sel = document.createElement('select');
-      sel.className = 'edit-select';
-      MOSCOWS.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; if (m === currentValue) o.selected = true; sel.appendChild(o); });
-      td.innerHTML = '';
-      td.appendChild(sel);
-      sel.focus();
-      sel.addEventListener('change', () => { apiUpdate(featureId, { [field]: sel.value }); });
-      sel.addEventListener('blur', () => { render(); });
+      openCombo(td, featureId, field, currentValue, MOSCOWS);
+    } else if (type === 'combo') {
+      openCombo(td, featureId, field, currentValue, null);
     } else if (type === 'tags') {
-      const input = document.createElement('input');
-      input.className = 'edit-input';
-      input.value = (currentValue || []).join(', ');
-      input.placeholder = 'tag1, tag2, ...';
-      td.innerHTML = '';
-      td.appendChild(input);
-      input.focus();
-      input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') {
-          const tags = input.value.split(',').map(t => t.trim()).filter(Boolean);
-          apiUpdate(featureId, { tags });
-        }
-        if (ev.key === 'Escape') render();
-      });
-      input.addEventListener('blur', () => { render(); });
+      openTagsCombo(td, featureId, currentValue);
     } else {
       const input = document.createElement('input');
       input.className = 'edit-input';
@@ -360,22 +523,22 @@ function sortData(features) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-function renderTable(features) {
-  const headers = [
-    { key: 'id', label: '#' },
-    { key: 'title', label: 'Feature' },
-    { key: 'category', label: 'Category' },
-    { key: 'moscow', label: 'MoSCoW' },
-    { key: 'priority', label: 'Prio' },
-    { key: 'status', label: 'Status' },
-    { key: 'release', label: 'Release' },
-    { key: 'tags', label: 'Tags' },
-  ];
+const COL_COUNT = 8;
+const HEADERS = [
+  { key: 'id', label: '#' },
+  { key: 'title', label: 'Feature' },
+  { key: 'category', label: 'Category' },
+  { key: 'moscow', label: 'MoSCoW' },
+  { key: 'priority', label: 'Prio' },
+  { key: 'status', label: 'Status' },
+  { key: 'release', label: 'Release' },
+  { key: 'tags', label: 'Tags' },
+];
 
-  const table = document.createElement('table');
+function renderThead() {
   const thead = document.createElement('thead');
   const headerRow = document.createElement('tr');
-  headers.forEach(h => {
+  HEADERS.forEach(h => {
     const th = document.createElement('th');
     th.textContent = h.label;
     th.dataset.sort = h.key;
@@ -384,103 +547,221 @@ function renderTable(features) {
       if (h.key === 'tags') return;
       if (sortField === h.key) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
       else { sortField = h.key; sortDir = 'asc'; }
+      currentPage = 0;
       render();
     });
     headerRow.appendChild(th);
   });
   thead.appendChild(headerRow);
-  table.appendChild(thead);
+  return thead;
+}
+
+function renderTable(features) {
+  const table = document.createElement('table');
+  table.appendChild(renderThead());
 
   const tbody = document.createElement('tbody');
   if (features.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 8;
+    td.colSpan = COL_COUNT;
     td.className = 'empty';
     td.textContent = 'No features match';
     tr.appendChild(td);
     tbody.appendChild(tr);
   } else {
-    features.forEach(f => {
-      const tr = document.createElement('tr');
-
-      const tdId = document.createElement('td');
-      tdId.className = 'id-col';
-      tdId.textContent = f.id;
-      tr.appendChild(tdId);
-
-      const tdTitle = document.createElement('td');
-      tdTitle.className = 'title-col';
-      if (LIVE) {
-        const link = document.createElement('a');
-        link.className = 'title-link';
-        link.textContent = f.title;
-        link.href = '#';
-        link.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openDoc(f.id); });
-        tdTitle.appendChild(link);
-      } else {
-        tdTitle.textContent = f.title;
-      }
-      makeEditable(tdTitle, f.id, 'title', f.title, 'text');
-      tr.appendChild(tdTitle);
-
-      const tdCat = document.createElement('td');
-      tdCat.textContent = f.category;
-      makeEditable(tdCat, f.id, 'category', f.category, 'text');
-      tr.appendChild(tdCat);
-
-      const tdMoscow = document.createElement('td');
-      const moscowSpan = document.createElement('span');
-      moscowSpan.className = moscowClass(f.moscow);
-      moscowSpan.textContent = f.moscow;
-      tdMoscow.appendChild(moscowSpan);
-      makeEditable(tdMoscow, f.id, 'moscow', f.moscow, 'select-moscow');
-      tr.appendChild(tdMoscow);
-
-      const tdPrio = document.createElement('td');
-      tdPrio.textContent = f.priority !== null ? String(f.priority) : '\\u2014';
-      makeEditable(tdPrio, f.id, 'priority', f.priority, 'text');
-      tr.appendChild(tdPrio);
-
-      const tdStatus = document.createElement('td');
-      const statusSpan = document.createElement('span');
-      statusSpan.className = 'badge ' + statusClass(f.status);
-      statusSpan.textContent = f.status;
-      tdStatus.appendChild(statusSpan);
-      makeEditable(tdStatus, f.id, 'status', f.status, 'select-status');
-      tr.appendChild(tdStatus);
-
-      const tdRel = document.createElement('td');
-      if (f.release) {
-        const relSpan = document.createElement('span');
-        relSpan.className = 'release-badge';
-        relSpan.textContent = f.release;
-        tdRel.appendChild(relSpan);
-      } else {
-        tdRel.textContent = '\\u2014';
-      }
-      makeEditable(tdRel, f.id, 'release', f.release, 'text');
-      tr.appendChild(tdRel);
-
-      const tdTags = document.createElement('td');
-      if (f.tags.length > 0) {
-        f.tags.forEach(t => {
-          const span = document.createElement('span');
-          span.className = 'tag';
-          span.textContent = t;
-          tdTags.appendChild(span);
-        });
-      } else {
-        tdTags.textContent = '\\u2014';
-      }
-      makeEditable(tdTags, f.id, 'tags', f.tags, 'tags');
-      tr.appendChild(tdTags);
-
-      tbody.appendChild(tr);
-    });
+    features.forEach(f => tbody.appendChild(renderRow(f)));
   }
   table.appendChild(tbody);
   return table;
+}
+
+function renderRow(f) {
+  const tr = document.createElement('tr');
+
+  const tdId = document.createElement('td');
+  tdId.className = 'id-col';
+  tdId.textContent = f.id;
+  tr.appendChild(tdId);
+
+  const tdTitle = document.createElement('td');
+  tdTitle.className = 'title-col';
+  if (LIVE) {
+    const link = document.createElement('a');
+    link.className = 'title-link';
+    link.textContent = f.title;
+    link.href = '#';
+    link.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openDoc(f.id); });
+    tdTitle.appendChild(link);
+    const editBtn = document.createElement('span');
+    editBtn.className = 'title-edit';
+    editBtn.textContent = '\\u270E';
+    editBtn.title = 'Edit title';
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const input = document.createElement('input');
+      input.className = 'edit-input';
+      input.value = f.title;
+      tdTitle.innerHTML = '';
+      tdTitle.appendChild(input);
+      input.focus();
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { apiUpdate(f.id, { title: input.value || null }); }
+        if (ev.key === 'Escape') render();
+      });
+      input.addEventListener('blur', () => { render(); });
+    });
+    tdTitle.appendChild(editBtn);
+  } else {
+    tdTitle.textContent = f.title;
+  }
+  tr.appendChild(tdTitle);
+
+  const tdCat = document.createElement('td');
+  tdCat.textContent = f.category;
+  makeEditable(tdCat, f.id, 'category', f.category, 'combo');
+  tr.appendChild(tdCat);
+
+  const tdMoscow = document.createElement('td');
+  const moscowSpan = document.createElement('span');
+  moscowSpan.className = moscowClass(f.moscow);
+  moscowSpan.textContent = f.moscow;
+  tdMoscow.appendChild(moscowSpan);
+  makeEditable(tdMoscow, f.id, 'moscow', f.moscow, 'select-moscow');
+  tr.appendChild(tdMoscow);
+
+  const tdPrio = document.createElement('td');
+  tdPrio.textContent = f.priority !== null ? String(f.priority) : '\\u2014';
+  makeEditable(tdPrio, f.id, 'priority', f.priority, 'text');
+  tr.appendChild(tdPrio);
+
+  const tdStatus = document.createElement('td');
+  const statusSpan = document.createElement('span');
+  statusSpan.className = 'badge ' + statusClass(f.status);
+  statusSpan.textContent = f.status;
+  tdStatus.appendChild(statusSpan);
+  makeEditable(tdStatus, f.id, 'status', f.status, 'select-status');
+  tr.appendChild(tdStatus);
+
+  const tdRel = document.createElement('td');
+  if (f.release) {
+    const relSpan = document.createElement('span');
+    relSpan.className = 'release-badge';
+    relSpan.textContent = f.release;
+    tdRel.appendChild(relSpan);
+  } else {
+    tdRel.textContent = '\\u2014';
+  }
+  makeEditable(tdRel, f.id, 'release', f.release, 'combo');
+  tr.appendChild(tdRel);
+
+  const tdTags = document.createElement('td');
+  if (f.tags.length > 0) {
+    f.tags.forEach(t => {
+      const span = document.createElement('span');
+      span.className = 'tag';
+      span.textContent = t;
+      tdTags.appendChild(span);
+    });
+  } else {
+    tdTags.textContent = '\\u2014';
+  }
+  makeEditable(tdTags, f.id, 'tags', f.tags, 'tags');
+  tr.appendChild(tdTags);
+
+  return tr;
+}
+
+function renderGroupedTable(groups) {
+  const table = document.createElement('table');
+  table.appendChild(renderThead());
+  const tbody = document.createElement('tbody');
+  Object.keys(groups).sort().forEach(k => {
+    // Group header as a spanning row
+    const hdr = document.createElement('tr');
+    hdr.className = 'group-header';
+    const hdrTd = document.createElement('td');
+    hdrTd.colSpan = COL_COUNT;
+    hdrTd.innerHTML = esc(k) + ' <span class="count">(' + groups[k].length + ')</span>';
+    hdr.appendChild(hdrTd);
+    tbody.appendChild(hdr);
+    groups[k].forEach(f => tbody.appendChild(renderRow(f)));
+  });
+  table.appendChild(tbody);
+  return table;
+}
+
+function buildPagination(total) {
+  const totalPages = Math.ceil(total / pageSize);
+  if (currentPage >= totalPages) currentPage = Math.max(0, totalPages - 1);
+
+  const bar = document.createElement('div');
+  bar.className = 'pagination';
+
+  // Page size selector
+  const sizeLabel = document.createElement('span');
+  sizeLabel.textContent = 'Show:';
+  bar.appendChild(sizeLabel);
+  const sizeSel = document.createElement('select');
+  [10, 25, 50, 100].forEach(n => {
+    const o = document.createElement('option');
+    o.value = String(n); o.textContent = String(n);
+    if (n === pageSize) o.selected = true;
+    sizeSel.appendChild(o);
+  });
+  sizeSel.addEventListener('change', () => {
+    pageSize = parseInt(sizeSel.value, 10);
+    currentPage = 0;
+    try { localStorage.setItem('featmap-pageSize', String(pageSize)); } catch {}
+    render();
+  });
+  bar.appendChild(sizeSel);
+
+  // Info
+  const start = currentPage * pageSize + 1;
+  const end = Math.min((currentPage + 1) * pageSize, total);
+  const info = document.createElement('span');
+  info.textContent = start + '\\u2013' + end + ' of ' + total;
+  bar.appendChild(info);
+
+  if (totalPages <= 1) return bar;
+
+  // Prev
+  const prev = document.createElement('button');
+  prev.className = 'page-btn'; prev.textContent = '\\u2039 Prev';
+  prev.disabled = currentPage === 0;
+  prev.addEventListener('click', () => { currentPage--; render(); });
+  bar.appendChild(prev);
+
+  // Page numbers
+  const nums = document.createElement('div');
+  nums.className = 'page-nums';
+  for (let i = 0; i < totalPages; i++) {
+    // Show first, last, current, and neighbors; ellipsis for gaps
+    if (totalPages > 7 && i > 1 && i < totalPages - 2 && Math.abs(i - currentPage) > 1) {
+      if (i === 2 || i === totalPages - 3) {
+        const dot = document.createElement('span');
+        dot.className = 'page-num'; dot.textContent = '\\u2026'; dot.style.cursor = 'default';
+        nums.appendChild(dot);
+      }
+      continue;
+    }
+    const btn = document.createElement('button');
+    btn.className = 'page-num' + (i === currentPage ? ' active' : '');
+    btn.textContent = String(i + 1);
+    btn.addEventListener('click', () => { currentPage = i; render(); });
+    nums.appendChild(btn);
+  }
+  bar.appendChild(nums);
+
+  // Next
+  const next = document.createElement('button');
+  next.className = 'page-btn'; next.textContent = 'Next \\u203A';
+  next.disabled = currentPage >= totalPages - 1;
+  next.addEventListener('click', () => { currentPage++; render(); });
+  bar.appendChild(next);
+
+  return bar;
 }
 
 function render() {
@@ -501,8 +782,11 @@ function render() {
   content.innerHTML = '';
 
   if (!groupByVal) {
-    content.appendChild(renderTable(sorted));
+    const paged = sorted.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+    content.appendChild(renderTable(paged));
+    content.appendChild(buildPagination(sorted.length));
   } else {
+    // Grouped view: single table with group separator rows, sticky header works throughout
     const groups = {};
     for (const f of sorted) {
       let keys;
@@ -516,21 +800,15 @@ function render() {
         groups[k].push(f);
       }
     }
-    Object.keys(groups).sort().forEach(k => {
-      const header = document.createElement('div');
-      header.className = 'group-header';
-      header.innerHTML = esc(k) + ' <span class="count">(' + groups[k].length + ')</span>';
-      content.appendChild(header);
-      content.appendChild(renderTable(groups[k]));
-    });
+    content.appendChild(renderGroupedTable(groups));
   }
 }
 
 populateFilters();
 render();
 
-document.getElementById('search').addEventListener('input', render);
-document.querySelectorAll('select').forEach(s => s.addEventListener('change', render));
+document.getElementById('search').addEventListener('input', () => { currentPage = 0; render(); });
+document.querySelectorAll('select').forEach(s => s.addEventListener('change', () => { currentPage = 0; render(); }));
 ` + "<" + "/script>" + `
 </body>
 </html>`;

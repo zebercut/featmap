@@ -104,7 +104,7 @@ function atomicWrite(filePath: string, data: string): void {
 }
 
 /** Find the directory for a feature by its ID (e.g. FEAT001). Scans for dirs starting with that prefix. */
-function findFeatureDir(featuresDir: string, id: string): string | null {
+export function findFeatureDir(featuresDir: string, id: string): string | null {
   if (!fs.existsSync(featuresDir)) return null;
   const entries = fs.readdirSync(featuresDir, { withFileTypes: true });
   for (const entry of entries) {

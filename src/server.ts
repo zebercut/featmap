@@ -1,19 +1,9 @@
 import * as http from "http";
 import * as fs from "fs";
 import * as path from "path";
-import { loadAllFeatures, updateFeature } from "./loader";
+import { loadAllFeatures, updateFeature, findFeatureDir } from "./loader";
 import { buildHtmlFromFeatures } from "./html-generator";
 import { FEATURE_DIR_PATTERN } from "./types";
-
-function findFeatureDir(featuresDir: string, id: string): string | null {
-  if (!fs.existsSync(featuresDir)) return null;
-  const entries = fs.readdirSync(featuresDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name.startsWith(id + "_")) return entry.name;
-  }
-  return null;
-}
 
 function findMdFile(dirPath: string): string | null {
   const files = fs.readdirSync(dirPath);
@@ -28,12 +18,22 @@ function escHtml(s: string): string {
 }
 
 function inlineMarkdown(text: string): string {
-  return text
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/_(.+?)_/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  // Escape HTML first to prevent XSS, then apply markdown transforms
+  let s = escHtml(text);
+  // Code spans (must be first — content inside should stay escaped)
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // Bold before italic
+  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  // Italic with * (not **)
+  s = s.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>");
+  // Italic with _ — require word boundary to avoid mangling paths like some_file_name
+  s = s.replace(/(?<=\s|^)_([^\s_](?:.*?[^\s_])?)_(?=\s|$|[.,;:!?)])/g, "<em>$1</em>");
+  // Links (href was escaped, unescape entities back for URLs)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+    const href = url.replace(/&amp;/g, "&").replace(/&quot;/g, "%22").replace(/&lt;/g, "%3C").replace(/&gt;/g, "%3E");
+    return `<a href="${href}" target="_blank">${label}</a>`;
+  });
+  return s;
 }
 
 function renderMarkdown(src: string): string {
@@ -109,7 +109,7 @@ function renderMarkdown(src: string): string {
       if (content.startsWith("[x] ")) {
         out.push(`<li><input type="checkbox" checked disabled>${inlineMarkdown(content.slice(4))}</li>`);
       } else {
-        out.push(`<li><input type="checkbox" disabled>${inlineMarkdown(content.slice(3))}</li>`);
+        out.push(`<li><input type="checkbox" disabled>${inlineMarkdown(content.slice(4))}</li>`);
       }
       continue;
     }

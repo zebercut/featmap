@@ -8,6 +8,7 @@ export {
   writeFeature,
   updateFeature,
   nextFeatureId,
+  findFeatureDir,
 } from "./loader";
 
 // Validation
