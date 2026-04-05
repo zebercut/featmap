@@ -22,13 +22,17 @@
     "prioritization",
     "html-viewer"
   ],
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "featmap": "src/cli.ts"
+    "featmap": "featmap.js"
   },
   "scripts": {
-    "list": "ts-node src/cli.ts list",
-    "regen": "ts-node src/cli.ts regen",
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "list": "node featmap.js list",
+    "regen": "node featmap.js regen",
+    "serve": "node featmap.js serve",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
