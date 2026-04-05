@@ -3,7 +3,7 @@ import * as path from "path";
 import { Feature, FeatureFilter, FeatureSortField, FEATURE_DIR_PATTERN, featureDirName, extractIdFromDir, slugify } from "./types";
 import { validateFeature } from "./validator";
 import { generateManifest } from "./index-generator";
-import { generateHtml } from "./html-generator";
+
 
 function featureReadmeTemplate(f: Feature, fileName: string): string {
   return `# ${f.id} — ${f.title}
@@ -219,7 +219,6 @@ export function writeFeature(featuresDir: string, feature: Feature): void {
   }
 
   generateManifest(featuresDir);
-  generateHtml(featuresDir, path.join(featuresDir, "..", "features.html"));
 }
 
 export function updateFeature(
