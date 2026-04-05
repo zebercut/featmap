@@ -153,6 +153,58 @@ function buildHtml(json: string, live: boolean): string {
   .combo-new { color: var(--accent); font-style: italic; border-top: 1px solid var(--border); }
   .combo-new-input { width: 100%; background: var(--bg); border: none; border-top: 1px solid var(--border); color: var(--text); padding: 6px 10px; font-size: 12px; font-family: inherit; outline: none; }
 
+  /* View toggle */
+  .view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-left: 8px; }
+  .view-btn { background: var(--bg2); border: none; color: var(--text2); padding: 6px 14px; font-size: 13px; cursor: pointer; border-right: 1px solid var(--border); }
+  .view-btn:last-child { border-right: none; }
+  .view-btn:hover { color: var(--text); }
+  .view-btn.active { background: var(--accent); color: #fff; }
+
+  /* Milestone cards */
+  .ms-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .ms-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  .ms-card:hover { border-color: var(--accent); }
+  .ms-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+  .ms-name { font-size: 16px; font-weight: 700; flex: 1; }
+  .ms-count { font-size: 13px; color: var(--text2); }
+
+  /* Progress ring */
+  .ms-ring { position: relative; width: 64px; height: 64px; flex-shrink: 0; }
+  .ms-ring svg { transform: rotate(-90deg); }
+  .ms-ring circle { fill: none; stroke-width: 5; }
+  .ms-ring .ring-bg { stroke: var(--bg3); }
+  .ms-ring .ring-fg { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 0.5s ease; }
+  .ms-ring .ring-pct { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; transform: none; }
+
+  /* Status bar */
+  .ms-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 12px; background: var(--bg3); }
+  .ms-bar-seg { height: 100%; transition: width 0.3s ease; }
+  .ms-bar-done { background: var(--green); }
+  .ms-bar-wip { background: var(--yellow); }
+  .ms-bar-planned { background: var(--accent); }
+  .ms-bar-rejected { background: var(--gray); }
+
+  /* Status counts */
+  .ms-stats { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--text2); margin-bottom: 12px; }
+  .ms-stat { display: flex; align-items: center; gap: 4px; }
+  .ms-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  /* MoSCoW breakdown */
+  .ms-moscow { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ms-moscow-item { font-size: 11px; padding: 2px 8px; border-radius: 8px; font-weight: 600; }
+
+  /* Milestone sections */
+  .ms-section { margin-bottom: 24px; }
+  .ms-section-header { display: flex; align-items: center; gap: 10px; padding: 10px 0; cursor: pointer; user-select: none; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  .ms-section-header:hover { color: var(--accent); }
+  .ms-section-title { font-size: 15px; font-weight: 600; }
+  .ms-section-meta { font-size: 12px; color: var(--text3); }
+  .ms-arrow { font-size: 12px; color: var(--text3); transition: transform 0.2s; }
+  .ms-arrow.open { transform: rotate(90deg); }
+  .ms-section-body { overflow: hidden; }
+  .ms-section-body.collapsed { display: none; }
+  .ms-unassigned { opacity: 0.6; }
+
   /* Toast */
   #toasts { position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex; flex-direction: column-reverse; gap: 8px; pointer-events: none; }
   .toast { padding: 10px 16px; border-radius: 8px; font-size: 13px; transition: opacity 0.3s; pointer-events: auto; }
@@ -161,7 +213,13 @@ function buildHtml(json: string, live: boolean): string {
 </style>
 </head>
 <body>
-<h1>featmap${live ? ' <span class="live">live</span>' : ''} <button class="theme-toggle" id="themeToggle" title="Toggle theme">☀️</button></h1>
+<h1>featmap${live ? ' <span class="live">live</span>' : ''}
+  <div class="view-toggle">
+    <button class="view-btn active" data-view="list">List</button>
+    <button class="view-btn" data-view="milestones">Milestones</button>
+  </div>
+  <button class="theme-toggle" id="themeToggle" title="Toggle theme">☀️</button>
+</h1>
 
 <div class="toolbar">
   <input class="search" id="search" type="text" placeholder="Search features...">
@@ -209,6 +267,23 @@ themeBtn.addEventListener('click', () => {
   setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
 });
 try { const saved = localStorage.getItem('featmap-theme'); if (saved) setTheme(saved); } catch {}
+
+// --- View toggle ---
+let currentView = 'list';
+try { const sv = localStorage.getItem('featmap-view'); if (sv) currentView = sv; } catch {}
+const viewBtns = document.querySelectorAll('.view-btn');
+function setView(v) {
+  currentView = v;
+  try { localStorage.setItem('featmap-view', v); } catch {}
+  viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  // Show/hide groupBy — only relevant for list view
+  document.getElementById('groupBy').style.display = v === 'list' ? '' : 'none';
+  render();
+}
+viewBtns.forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+// Apply saved view on load
+viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === currentView));
+if (currentView !== 'list') document.getElementById('groupBy').style.display = 'none';
 
 // --- Doc panel ---
 const docOverlay = document.getElementById('docOverlay');
@@ -765,6 +840,183 @@ function buildPagination(total) {
   return bar;
 }
 
+// --- Milestone view ---
+const MOSCOW_ORDER = ['MUST', 'SHOULD', 'COULD', 'WONT'];
+const MOSCOW_COLORS = { MUST: 'var(--red)', SHOULD: 'var(--yellow)', COULD: 'var(--blue)', WONT: 'var(--gray)' };
+const STATUS_ORDER = ['Done', 'In Progress', 'Planned', 'Rejected'];
+
+function buildMilestoneData(features) {
+  const milestones = {};
+  features.forEach(f => {
+    const key = f.release || '(unassigned)';
+    if (!milestones[key]) milestones[key] = { name: key, features: [], done: 0, inProgress: 0, planned: 0, rejected: 0, moscow: {} };
+    const m = milestones[key];
+    m.features.push(f);
+    if (f.status === 'Done') m.done++;
+    else if (f.status === 'In Progress') m.inProgress++;
+    else if (f.status === 'Planned') m.planned++;
+    else m.rejected++;
+    m.moscow[f.moscow] = (m.moscow[f.moscow] || 0) + 1;
+  });
+  // Sort: named milestones first (alphabetical), unassigned last
+  return Object.values(milestones).sort((a, b) => {
+    if (a.name === '(unassigned)') return 1;
+    if (b.name === '(unassigned)') return -1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function renderProgressRing(pct) {
+  const r = 27, c = 2 * Math.PI * r;
+  const offset = c - (pct / 100) * c;
+  const el = document.createElement('div');
+  el.className = 'ms-ring';
+  el.innerHTML = '<svg width="64" height="64" viewBox="0 0 64 64">' +
+    '<circle class="ring-bg" cx="32" cy="32" r="' + r + '"/>' +
+    '<circle class="ring-fg" cx="32" cy="32" r="' + r + '" stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + offset.toFixed(1) + '"/>' +
+    '</svg><div class="ring-pct">' + Math.round(pct) + '%</div>';
+  return el;
+}
+
+function renderMilestoneCard(m) {
+  const total = m.features.length;
+  const pct = total > 0 ? (m.done / total) * 100 : 0;
+
+  const card = document.createElement('div');
+  card.className = 'ms-card' + (m.name === '(unassigned)' ? ' ms-unassigned' : '');
+
+  // Header: ring + name + count
+  const header = document.createElement('div');
+  header.className = 'ms-header';
+  header.appendChild(renderProgressRing(pct));
+  const info = document.createElement('div');
+  info.style.flex = '1';
+  const name = document.createElement('div');
+  name.className = 'ms-name';
+  name.textContent = m.name;
+  info.appendChild(name);
+  const count = document.createElement('div');
+  count.className = 'ms-count';
+  count.textContent = m.done + ' / ' + total + ' done';
+  info.appendChild(count);
+  header.appendChild(info);
+  card.appendChild(header);
+
+  // Status bar
+  const bar = document.createElement('div');
+  bar.className = 'ms-bar';
+  if (total > 0) {
+    [['ms-bar-done', m.done], ['ms-bar-wip', m.inProgress], ['ms-bar-planned', m.planned], ['ms-bar-rejected', m.rejected]].forEach(([cls, n]) => {
+      if (n > 0) {
+        const seg = document.createElement('div');
+        seg.className = 'ms-bar-seg ' + cls;
+        seg.style.width = ((n / total) * 100).toFixed(1) + '%';
+        bar.appendChild(seg);
+      }
+    });
+  }
+  card.appendChild(bar);
+
+  // Status counts
+  const stats = document.createElement('div');
+  stats.className = 'ms-stats';
+  [['var(--green)', 'Done', m.done], ['var(--yellow)', 'In Progress', m.inProgress], ['var(--accent)', 'Planned', m.planned], ['var(--gray)', 'Rejected', m.rejected]].forEach(([color, label, n]) => {
+    if (n > 0) {
+      const stat = document.createElement('div');
+      stat.className = 'ms-stat';
+      stat.innerHTML = '<span class="ms-dot" style="background:' + color + '"></span>' + label + ' ' + n;
+      stats.appendChild(stat);
+    }
+  });
+  card.appendChild(stats);
+
+  // MoSCoW breakdown
+  const moscow = document.createElement('div');
+  moscow.className = 'ms-moscow';
+  MOSCOW_ORDER.forEach(key => {
+    const n = m.moscow[key];
+    if (n) {
+      const item = document.createElement('span');
+      item.className = 'ms-moscow-item';
+      item.style.background = MOSCOW_COLORS[key] + '22';
+      item.style.color = MOSCOW_COLORS[key];
+      item.textContent = key + ' ' + n;
+      moscow.appendChild(item);
+    }
+  });
+  card.appendChild(moscow);
+
+  return card;
+}
+
+// Track collapsed state per milestone
+const msCollapsed = {};
+
+function renderMilestoneSection(m) {
+  const section = document.createElement('div');
+  section.className = 'ms-section';
+  const total = m.features.length;
+  const isCollapsed = msCollapsed[m.name] ?? false;
+
+  // Header
+  const hdr = document.createElement('div');
+  hdr.className = 'ms-section-header';
+  const arrow = document.createElement('span');
+  arrow.className = 'ms-arrow' + (isCollapsed ? '' : ' open');
+  arrow.textContent = '\\u25B6';
+  hdr.appendChild(arrow);
+  const title = document.createElement('span');
+  title.className = 'ms-section-title';
+  title.textContent = m.name;
+  hdr.appendChild(title);
+  const meta = document.createElement('span');
+  meta.className = 'ms-section-meta';
+  meta.textContent = m.done + '/' + total + ' done';
+  hdr.appendChild(meta);
+
+  const body = document.createElement('div');
+  body.className = 'ms-section-body' + (isCollapsed ? ' collapsed' : '');
+
+  hdr.addEventListener('click', () => {
+    msCollapsed[m.name] = !msCollapsed[m.name];
+    arrow.classList.toggle('open');
+    body.classList.toggle('collapsed');
+  });
+  section.appendChild(hdr);
+
+  // Sort features: Done first, then In Progress, Planned, Rejected
+  const sorted = [...m.features].sort((a, b) => {
+    const ai = STATUS_ORDER.indexOf(a.status), bi = STATUS_ORDER.indexOf(b.status);
+    if (ai !== bi) return ai - bi;
+    return (a.priority ?? 999) - (b.priority ?? 999);
+  });
+
+  const table = document.createElement('table');
+  table.appendChild(renderThead());
+  const tbody = document.createElement('tbody');
+  sorted.forEach(f => tbody.appendChild(renderRow(f)));
+  table.appendChild(tbody);
+  body.appendChild(table);
+  section.appendChild(body);
+  return section;
+}
+
+function renderMilestoneView(features) {
+  const milestones = buildMilestoneData(features);
+  const container = document.createElement('div');
+
+  // Cards grid
+  const grid = document.createElement('div');
+  grid.className = 'ms-grid';
+  milestones.forEach(m => grid.appendChild(renderMilestoneCard(m)));
+  container.appendChild(grid);
+
+  // Expandable sections
+  milestones.forEach(m => container.appendChild(renderMilestoneSection(m)));
+
+  return container;
+}
+
 function render() {
   const filtered = getFiltered();
   const sorted = sortData(filtered);
@@ -782,12 +1034,13 @@ function render() {
 
   content.innerHTML = '';
 
-  if (!groupByVal) {
+  if (currentView === 'milestones') {
+    content.appendChild(renderMilestoneView(filtered));
+  } else if (!groupByVal) {
     const paged = sorted.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
     content.appendChild(renderTable(paged));
     content.appendChild(buildPagination(sorted.length));
   } else {
-    // Grouped view: single table with group separator rows, sticky header works throughout
     const groups = {};
     for (const f of sorted) {
       let keys;
