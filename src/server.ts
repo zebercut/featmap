@@ -2,7 +2,7 @@ import * as http from "http";
 import * as fs from "fs";
 import * as path from "path";
 import { loadAllFeatures, updateFeature, findFeatureDir } from "./loader";
-import { buildHtmlFromFeatures } from "./html-generator";
+import { buildHtmlFromFeatures, detectProjectName } from "./html-generator";
 import { FEATURE_DIR_PATTERN } from "./types";
 
 function findMdFile(dirPath: string): string | null {
@@ -147,6 +147,7 @@ function renderMarkdown(src: string): string {
 const MAX_BODY_SIZE = 65536; // 64KB
 
 export function startServer(featuresDir: string, port: number = 3456, projectName?: string): void {
+  projectName = projectName || detectProjectName(featuresDir);
   const sseClients: http.ServerResponse[] = [];
   let suppressBroadcast = false;
   const watchers: fs.FSWatcher[] = [];

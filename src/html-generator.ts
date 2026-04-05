@@ -8,7 +8,7 @@ export interface HtmlOptions {
 }
 
 /** Try to read "name" from the nearest package.json above featuresDir */
-function detectProjectName(featuresDir: string): string {
+export function detectProjectName(featuresDir: string): string {
   const path = require("path");
   let dir = path.resolve(featuresDir, "..");
   for (let i = 0; i < 5; i++) {
