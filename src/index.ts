@@ -32,5 +32,7 @@ export type {
   FeatureFilterKey,
   FeatureSortField,
   FeatureStatus,
+  FeatureType,
+  Complexity,
   MoSCoW,
 } from "./types";

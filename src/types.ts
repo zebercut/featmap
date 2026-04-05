@@ -1,5 +1,7 @@
 export type MoSCoW = "MUST" | "SHOULD" | "COULD" | "WONT";
 export type FeatureStatus = "Planned" | "In Progress" | "Done" | "Rejected";
+export type FeatureType = "feature" | "bug";
+export type Complexity = "low" | "medium" | "high" | "very-high";
 
 export const FEATURE_DIR_PATTERN = /^FEAT\d{3,}_/;
 export const FEATURE_ID_PATTERN = /^FEAT\d{3,}$/;
@@ -32,6 +34,13 @@ export interface Feature {
   updatedAt: string;
   tags: string[];
   okrLink: string | null;
+  type: FeatureType;
+  description: string | null;
+  complexity: Complexity | null;
+  progress: number;
+  notes: string | null;
+  specFile: string | null;
+  githubIssue: number | null;
 }
 
 export interface FeatureManifestEntry {
@@ -43,6 +52,9 @@ export interface FeatureManifestEntry {
   status: FeatureStatus;
   release: string | null;
   tags: string[];
+  type: FeatureType;
+  complexity: Complexity | null;
+  progress: number;
 }
 
 export interface FeatureManifest {

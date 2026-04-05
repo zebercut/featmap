@@ -146,7 +146,7 @@ function renderMarkdown(src: string): string {
 
 const MAX_BODY_SIZE = 65536; // 64KB
 
-export function startServer(featuresDir: string, port: number = 3456): void {
+export function startServer(featuresDir: string, port: number = 3456, projectName?: string): void {
   const sseClients: http.ServerResponse[] = [];
   let suppressBroadcast = false;
   const watchers: fs.FSWatcher[] = [];
@@ -205,7 +205,7 @@ export function startServer(featuresDir: string, port: number = 3456): void {
   function serveHtml(_req: http.IncomingMessage, res: http.ServerResponse): void {
     // #6: Single HTML template shared with html-generator
     const features = loadAllFeatures(featuresDir);
-    const html = buildHtmlFromFeatures(features, { live: true });
+    const html = buildHtmlFromFeatures(features, { live: true, projectName });
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
   }
@@ -303,6 +303,19 @@ export function startServer(featuresDir: string, port: number = 3456): void {
         if (updates.priority !== undefined) {
           const p = updates.priority;
           allowed.priority = p === null || p === "" ? null : parseInt(String(p), 10);
+        }
+        if (updates.type !== undefined) allowed.type = updates.type;
+        if (updates.description !== undefined) allowed.description = updates.description || null;
+        if (updates.complexity !== undefined) allowed.complexity = updates.complexity || null;
+        if (updates.progress !== undefined) {
+          const prog = updates.progress;
+          allowed.progress = prog === null || prog === "" ? 0 : parseInt(String(prog), 10);
+        }
+        if (updates.notes !== undefined) allowed.notes = updates.notes || null;
+        if (updates.specFile !== undefined) allowed.specFile = updates.specFile || null;
+        if (updates.githubIssue !== undefined) {
+          const gi = updates.githubIssue;
+          allowed.githubIssue = gi === null || gi === "" ? null : parseInt(String(gi), 10);
         }
 
         // #1: Suppress file-watcher broadcast during our own write

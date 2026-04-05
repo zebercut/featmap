@@ -8,12 +8,15 @@ import { generateHtml } from "./html-generator";
 function featureReadmeTemplate(f: Feature, fileName: string): string {
   return `# ${f.id} — ${f.title}
 
-**Status:** ${f.status}
-**MoSCoW:** ${f.moscow}
+**Type:** ${f.type}
+**Status:** ${f.status} | **Progress:** ${f.progress}%
+**MoSCoW:** ${f.moscow}${f.complexity ? ` | **Complexity:** ${f.complexity}` : ""}
 **Category:** ${f.category}
 ${f.priority !== null ? `**Priority:** ${f.priority}  \n` : ""}\
 ${f.release ? `**Release:** ${f.release}  \n` : ""}\
 ${f.tags.length > 0 ? `**Tags:** ${f.tags.join(", ")}  \n` : ""}\
+${f.specFile ? `**Spec:** ${f.specFile}  \n` : ""}\
+${f.githubIssue ? `**GitHub Issue:** #${f.githubIssue}  \n` : ""}\
 **Created:** ${f.createdAt.slice(0, 10)}
 
 ---

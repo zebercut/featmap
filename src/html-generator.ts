@@ -4,11 +4,32 @@ import { Feature } from "./types";
 
 export interface HtmlOptions {
   live?: boolean;   // Enable SSE + inline editing (server mode)
+  projectName?: string; // Project name shown in header and title
 }
 
-export function generateHtml(featuresDir: string, outPath: string): void {
+/** Try to read "name" from the nearest package.json above featuresDir */
+function detectProjectName(featuresDir: string): string {
+  const path = require("path");
+  let dir = path.resolve(featuresDir, "..");
+  for (let i = 0; i < 5; i++) {
+    const pkg = path.join(dir, "package.json");
+    if (fs.existsSync(pkg)) {
+      try {
+        const json = JSON.parse(fs.readFileSync(pkg, "utf-8"));
+        if (json.name) return json.name;
+      } catch { /* ignore */ }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return "featmap";
+}
+
+export function generateHtml(featuresDir: string, outPath: string, opts?: Pick<HtmlOptions, "projectName">): void {
   const features = loadAllFeatures(featuresDir);
-  const html = buildHtmlFromFeatures(features, { live: false });
+  const name = opts?.projectName || detectProjectName(featuresDir);
+  const html = buildHtmlFromFeatures(features, { live: false, projectName: name });
   fs.writeFileSync(outPath, html, "utf-8");
 }
 
@@ -16,16 +37,18 @@ export function buildHtmlFromFeatures(features: Feature[], opts: HtmlOptions = {
   // Escape </ to prevent </script> breakout (stored XSS via feature titles)
   const json = JSON.stringify(features).replace(/<\//g, "<\\/");
   const live = opts.live ?? false;
-  return buildHtml(json, live);
+  const projectName = opts.projectName ?? "featmap";
+  return buildHtml(json, live, projectName);
 }
 
-function buildHtml(json: string, live: boolean): string {
+function buildHtml(json: string, live: boolean, projectName: string): string {
+  const escName = projectName.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   return `<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>featmap</title>
+<title>${escName} — featmap</title>
 <style>
   [data-theme="dark"] {
     --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
@@ -94,6 +117,20 @@ function buildHtml(json: string, live: boolean): string {
   [data-theme="dark"] .release-badge { background: #8b5cf622; color: #a78bfa; }
   [data-theme="light"] .release-badge { background: #7c3aed18; color: #6d28d9; }
   .release-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+
+  .type-feature { color: var(--blue); }
+  .type-bug { color: var(--red); font-weight: 600; }
+  .complexity-low { color: var(--green); }
+  .complexity-medium { color: var(--yellow); }
+  .complexity-high { color: var(--red); }
+  .complexity-veryhigh { color: var(--red); font-weight: 700; }
+  .progress-bar { display: inline-flex; align-items: center; gap: 6px; min-width: 80px; }
+  .progress-track { flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; min-width: 50px; }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .progress-fill-low { background: var(--red); }
+  .progress-fill-mid { background: var(--yellow); }
+  .progress-fill-high { background: var(--green); }
+  .progress-label { font-size: 11px; color: var(--text2); white-space: nowrap; }
 
   .id-col { font-family: monospace; color: var(--text3); white-space: nowrap; }
   .title-col { font-weight: 500; }
@@ -213,7 +250,7 @@ function buildHtml(json: string, live: boolean): string {
 </style>
 </head>
 <body>
-<h1>featmap${live ? ' <span class="live">live</span>' : ''}
+<h1>${escName} <span style="color:var(--text3);font-weight:400;font-size:14px;">featmap</span>${live ? ' <span class="live">live</span>' : ''}
   <div class="view-toggle">
     <button class="view-btn active" data-view="list">List</button>
     <button class="view-btn" data-view="milestones">Milestones</button>
@@ -315,6 +352,11 @@ document.addEventListener('keydown', (e) => {
 
 const STATUSES = ['Planned', 'In Progress', 'Done', 'Rejected'];
 const MOSCOWS = ['MUST', 'SHOULD', 'COULD', 'WONT'];
+const TYPES = ['feature', 'bug'];
+const COMPLEXITIES = ['low', 'medium', 'high', 'very-high'];
+const typeClass = t => 'type-' + t;
+const complexityClass = c => c ? 'complexity-' + c.replace('-', '') : '';
+function progressFillClass(p) { return p < 33 ? 'progress-fill-low' : p < 67 ? 'progress-fill-mid' : 'progress-fill-high'; }
 
 // --- SSE: auto-refresh on file changes (live mode only) ---
 if (LIVE) {
@@ -522,6 +564,10 @@ function makeEditable(td, featureId, field, currentValue, type) {
       openCombo(td, featureId, field, currentValue, STATUSES);
     } else if (type === 'select-moscow') {
       openCombo(td, featureId, field, currentValue, MOSCOWS);
+    } else if (type === 'select-type') {
+      openCombo(td, featureId, field, currentValue, TYPES);
+    } else if (type === 'select-complexity') {
+      openCombo(td, featureId, field, currentValue, ['', ...COMPLEXITIES]);
     } else if (type === 'combo') {
       openCombo(td, featureId, field, currentValue, null);
     } else if (type === 'tags') {
@@ -599,13 +645,16 @@ function sortData(features) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-const COL_COUNT = 8;
+const COL_COUNT = 11;
 const HEADERS = [
   { key: 'id', label: '#' },
   { key: 'title', label: 'Feature' },
+  { key: 'type', label: 'Type' },
   { key: 'category', label: 'Category' },
   { key: 'moscow', label: 'MoSCoW' },
+  { key: 'complexity', label: 'Cplx' },
   { key: 'priority', label: 'Prio' },
+  { key: 'progress', label: 'Progress' },
   { key: 'status', label: 'Status' },
   { key: 'release', label: 'Release' },
   { key: 'tags', label: 'Tags' },
@@ -693,6 +742,14 @@ function renderRow(f) {
   }
   tr.appendChild(tdTitle);
 
+  const tdType = document.createElement('td');
+  const typeSpan = document.createElement('span');
+  typeSpan.className = typeClass(f.type);
+  typeSpan.textContent = f.type;
+  tdType.appendChild(typeSpan);
+  makeEditable(tdType, f.id, 'type', f.type, 'select-type');
+  tr.appendChild(tdType);
+
   const tdCat = document.createElement('td');
   tdCat.textContent = f.category;
   makeEditable(tdCat, f.id, 'category', f.category, 'combo');
@@ -706,10 +763,40 @@ function renderRow(f) {
   makeEditable(tdMoscow, f.id, 'moscow', f.moscow, 'select-moscow');
   tr.appendChild(tdMoscow);
 
+  const tdCplx = document.createElement('td');
+  if (f.complexity) {
+    const cplxSpan = document.createElement('span');
+    cplxSpan.className = complexityClass(f.complexity);
+    cplxSpan.textContent = f.complexity;
+    tdCplx.appendChild(cplxSpan);
+  } else {
+    tdCplx.textContent = '\\u2014';
+  }
+  makeEditable(tdCplx, f.id, 'complexity', f.complexity, 'select-complexity');
+  tr.appendChild(tdCplx);
+
   const tdPrio = document.createElement('td');
   tdPrio.textContent = f.priority !== null ? String(f.priority) : '\\u2014';
   makeEditable(tdPrio, f.id, 'priority', f.priority, 'text');
   tr.appendChild(tdPrio);
+
+  const tdProg = document.createElement('td');
+  const progBar = document.createElement('div');
+  progBar.className = 'progress-bar';
+  const progTrack = document.createElement('div');
+  progTrack.className = 'progress-track';
+  const progFill = document.createElement('div');
+  progFill.className = 'progress-fill ' + progressFillClass(f.progress);
+  progFill.style.width = f.progress + '%';
+  progTrack.appendChild(progFill);
+  progBar.appendChild(progTrack);
+  const progLabel = document.createElement('span');
+  progLabel.className = 'progress-label';
+  progLabel.textContent = f.progress + '%';
+  progBar.appendChild(progLabel);
+  tdProg.appendChild(progBar);
+  makeEditable(tdProg, f.id, 'progress', f.progress, 'text');
+  tr.appendChild(tdProg);
 
   const tdStatus = document.createElement('td');
   const statusSpan = document.createElement('span');
