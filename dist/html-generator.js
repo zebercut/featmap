@@ -33,21 +33,25 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.detectProjectName = detectProjectName;
 exports.generateHtml = generateHtml;
 exports.buildHtmlFromFeatures = buildHtmlFromFeatures;
 const fs = __importStar(require("fs"));
 const loader_1 = require("./loader");
-/** Try to read "name" from the nearest package.json above featuresDir */
+/** Try to read "name" from the root package.json above featuresDir.
+ *  Walks up to 10 levels and picks the topmost package.json found,
+ *  so subpackages (packages/foo) don't shadow the main project name. */
 function detectProjectName(featuresDir) {
     const path = require("path");
     let dir = path.resolve(featuresDir, "..");
-    for (let i = 0; i < 5; i++) {
+    let best = "featmap";
+    for (let i = 0; i < 10; i++) {
         const pkg = path.join(dir, "package.json");
         if (fs.existsSync(pkg)) {
             try {
                 const json = JSON.parse(fs.readFileSync(pkg, "utf-8"));
                 if (json.name)
-                    return json.name;
+                    best = json.name;
             }
             catch { /* ignore */ }
         }
@@ -56,7 +60,7 @@ function detectProjectName(featuresDir) {
             break;
         dir = parent;
     }
-    return "featmap";
+    return best;
 }
 function generateHtml(featuresDir, outPath, opts) {
     const features = (0, loader_1.loadAllFeatures)(featuresDir);
@@ -130,11 +134,17 @@ function buildHtml(json, live, projectName) {
 
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
   [data-theme="dark"] .badge-planned { background: #58a6ff22; color: var(--blue); }
+  [data-theme="dark"] .badge-designreviewed { background: #a78bfa22; color: #a78bfa; }
   [data-theme="dark"] .badge-inprogress { background: #d2992222; color: var(--yellow); }
+  [data-theme="dark"] .badge-codereviewed { background: #f778ba22; color: #f778ba; }
+  [data-theme="dark"] .badge-testing { background: #79c0ff22; color: #79c0ff; }
   [data-theme="dark"] .badge-done { background: #3fb95022; color: var(--green); }
   [data-theme="dark"] .badge-rejected { background: #f8514922; color: var(--red); }
   [data-theme="light"] .badge-planned { background: #0969da18; color: var(--blue); }
+  [data-theme="light"] .badge-designreviewed { background: #7c3aed18; color: #6d28d9; }
   [data-theme="light"] .badge-inprogress { background: #9a670018; color: var(--yellow); }
+  [data-theme="light"] .badge-codereviewed { background: #db277718; color: #db2777; }
+  [data-theme="light"] .badge-testing { background: #0550ae18; color: #0550ae; }
   [data-theme="light"] .badge-done { background: #1a7f3718; color: var(--green); }
   [data-theme="light"] .badge-rejected { background: #cf222e18; color: var(--red); }
 
@@ -247,7 +257,10 @@ function buildHtml(json, live, projectName) {
   .ms-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 12px; background: var(--bg3); }
   .ms-bar-seg { height: 100%; transition: width 0.3s ease; }
   .ms-bar-done { background: var(--green); }
+  .ms-bar-testing { background: #79c0ff; }
+  .ms-bar-codereviewed { background: #f778ba; }
   .ms-bar-wip { background: var(--yellow); }
+  .ms-bar-designreviewed { background: #a78bfa; }
   .ms-bar-planned { background: var(--accent); }
   .ms-bar-rejected { background: var(--gray); }
 
@@ -380,7 +393,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && docPanel.classList.contains('open')) { e.stopImmediatePropagation(); closeDoc(); }
 });
 
-const STATUSES = ['Planned', 'In Progress', 'Done', 'Rejected'];
+const STATUSES = ['Planned', 'Design Reviewed', 'In Progress', 'Code Reviewed', 'Testing', 'Done', 'Rejected'];
 const MOSCOWS = ['MUST', 'SHOULD', 'COULD', 'WONT'];
 const TYPES = ['feature', 'bug'];
 const COMPLEXITIES = ['low', 'medium', 'high', 'very-high'];
@@ -626,7 +639,7 @@ function populateFilters() {
     const sel = document.getElementById(id);
     while (sel.options.length > 1) sel.remove(1);
   });
-  const statuses = [...new Set(DATA.map(f => f.status))].sort();
+  const statuses = STATUSES;
   const moscows = [...new Set(DATA.map(f => f.moscow))];
   const categories = [...new Set(DATA.map(f => f.category))].sort();
   const releases = [...new Set(DATA.map(f => f.release).filter(Boolean))].sort();
@@ -960,17 +973,20 @@ function buildPagination(total) {
 // --- Milestone view ---
 const MOSCOW_ORDER = ['MUST', 'SHOULD', 'COULD', 'WONT'];
 const MOSCOW_COLORS = { MUST: 'var(--red)', SHOULD: 'var(--yellow)', COULD: 'var(--blue)', WONT: 'var(--gray)' };
-const STATUS_ORDER = ['Done', 'In Progress', 'Planned', 'Rejected'];
+const STATUS_ORDER = ['Done', 'Testing', 'Code Reviewed', 'In Progress', 'Design Reviewed', 'Planned', 'Rejected'];
 
 function buildMilestoneData(features) {
   const milestones = {};
   features.forEach(f => {
     const key = f.release || '(unassigned)';
-    if (!milestones[key]) milestones[key] = { name: key, features: [], done: 0, inProgress: 0, planned: 0, rejected: 0, moscow: {} };
+    if (!milestones[key]) milestones[key] = { name: key, features: [], done: 0, testing: 0, codeReviewed: 0, inProgress: 0, designReviewed: 0, planned: 0, rejected: 0, moscow: {} };
     const m = milestones[key];
     m.features.push(f);
     if (f.status === 'Done') m.done++;
+    else if (f.status === 'Testing') m.testing++;
+    else if (f.status === 'Code Reviewed') m.codeReviewed++;
     else if (f.status === 'In Progress') m.inProgress++;
+    else if (f.status === 'Design Reviewed') m.designReviewed++;
     else if (f.status === 'Planned') m.planned++;
     else m.rejected++;
     m.moscow[f.moscow] = (m.moscow[f.moscow] || 0) + 1;
@@ -1023,7 +1039,7 @@ function renderMilestoneCard(m) {
   const bar = document.createElement('div');
   bar.className = 'ms-bar';
   if (total > 0) {
-    [['ms-bar-done', m.done], ['ms-bar-wip', m.inProgress], ['ms-bar-planned', m.planned], ['ms-bar-rejected', m.rejected]].forEach(([cls, n]) => {
+    [['ms-bar-done', m.done], ['ms-bar-testing', m.testing], ['ms-bar-codereviewed', m.codeReviewed], ['ms-bar-wip', m.inProgress], ['ms-bar-designreviewed', m.designReviewed], ['ms-bar-planned', m.planned], ['ms-bar-rejected', m.rejected]].forEach(([cls, n]) => {
       if (n > 0) {
         const seg = document.createElement('div');
         seg.className = 'ms-bar-seg ' + cls;
@@ -1037,7 +1053,7 @@ function renderMilestoneCard(m) {
   // Status counts
   const stats = document.createElement('div');
   stats.className = 'ms-stats';
-  [['var(--green)', 'Done', m.done], ['var(--yellow)', 'In Progress', m.inProgress], ['var(--accent)', 'Planned', m.planned], ['var(--gray)', 'Rejected', m.rejected]].forEach(([color, label, n]) => {
+  [['var(--green)', 'Done', m.done], ['#79c0ff', 'Testing', m.testing], ['#f778ba', 'Code Reviewed', m.codeReviewed], ['var(--yellow)', 'In Progress', m.inProgress], ['#a78bfa', 'Design Reviewed', m.designReviewed], ['var(--accent)', 'Planned', m.planned], ['var(--gray)', 'Rejected', m.rejected]].forEach(([color, label, n]) => {
     if (n > 0) {
       const stat = document.createElement('div');
       stat.className = 'ms-stat';
@@ -1101,7 +1117,7 @@ function renderMilestoneSection(m) {
   });
   section.appendChild(hdr);
 
-  // Sort features: Done first, then In Progress, Planned, Rejected
+  // Sort features by status pipeline order
   const sorted = [...m.features].sort((a, b) => {
     const ai = STATUS_ORDER.indexOf(a.status), bi = STATUS_ORDER.indexOf(b.status);
     if (ai !== bi) return ai - bi;

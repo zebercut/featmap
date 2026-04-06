@@ -207,6 +207,7 @@ function renderMarkdown(src) {
 }
 const MAX_BODY_SIZE = 65536; // 64KB
 function startServer(featuresDir, port = 3456, projectName) {
+    projectName = projectName || (0, html_generator_1.detectProjectName)(featuresDir);
     const sseClients = [];
     let suppressBroadcast = false;
     const watchers = [];
