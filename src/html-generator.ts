@@ -608,7 +608,7 @@ function populateFilters() {
     const sel = document.getElementById(id);
     while (sel.options.length > 1) sel.remove(1);
   });
-  const statuses = [...new Set(DATA.map(f => f.status))].sort();
+  const statuses = STATUSES;
   const moscows = [...new Set(DATA.map(f => f.moscow))];
   const categories = [...new Set(DATA.map(f => f.category))].sort();
   const releases = [...new Set(DATA.map(f => f.release).filter(Boolean))].sort();
