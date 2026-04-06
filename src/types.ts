@@ -1,5 +1,5 @@
 export type MoSCoW = "MUST" | "SHOULD" | "COULD" | "WONT";
-export type FeatureStatus = "Planned" | "In Progress" | "Done" | "Rejected";
+export type FeatureStatus = "Planned" | "Design Reviewed" | "In Progress" | "Code Reviewed" | "Testing" | "Done" | "Rejected";
 export type FeatureType = "feature" | "bug";
 export type Complexity = "low" | "medium" | "high" | "very-high";
 

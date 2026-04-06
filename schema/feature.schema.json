@@ -9,7 +9,7 @@
     "category": { "type": "string", "minLength": 1 },
     "moscow": { "enum": ["MUST", "SHOULD", "COULD", "WONT"] },
     "priority": { "type": ["integer", "null"], "minimum": 1 },
-    "status": { "enum": ["Planned", "In Progress", "Done", "Rejected"] },
+    "status": { "enum": ["Planned", "Design Reviewed", "In Progress", "Code Reviewed", "Testing", "Done", "Rejected"] },
     "release": { "type": ["string", "null"] },
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" },

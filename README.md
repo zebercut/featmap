@@ -61,6 +61,30 @@ npx ts-node packages/featmap/src/cli.ts list --dir=./features
 ```
 Then: `npm run feat -- list`, `npm run feat -- add --title="..." --category="..." --moscow=MUST`
 
+### AI assistant rules (recommended)
+
+Add the feature status pipeline to your project's AI rules so assistants update statuses correctly.
+
+**CLAUDE.md / .windsurfrules / .cursorrules:**
+
+```markdown
+## Feature Backlog
+
+Maintain features in `packages/feature-kit/features/` (or your features directory).
+Each feature is a folder with a `.json` metadata file and `.md` description.
+
+Status pipeline — update as the feature progresses:
+- `Planned` → PM wrote the feature spec
+- `Design Reviewed` → Architect reviewed and approved the design
+- `In Progress` → Developer is coding
+- `Code Reviewed` → Code review passed
+- `Testing` → In QA/testing
+- `Done` → Complete
+- `Rejected` → Won't do
+
+Example: `npx ts-node packages/featmap/src/cli.ts update FEAT001 --status="Design Reviewed"`
+```
+
 ### .gitignore (optional)
 
 ```gitignore
@@ -152,7 +176,7 @@ Each feature folder is named `FEAT001_snake_case_title/` and contains a JSON fil
 | `category` | `string` | Product domain |
 | `moscow` | `enum` | `MUST`, `SHOULD`, `COULD`, `WONT` |
 | `priority` | `int \| null` | Numeric priority (lower = higher) |
-| `status` | `enum` | `Planned`, `In Progress`, `Done`, `Rejected` |
+| `status` | `enum` | `Planned`, `Design Reviewed`, `In Progress`, `Code Reviewed`, `Testing`, `Done`, `Rejected` |
 | `release` | `string \| null` | Target release (e.g. `v1.0`) |
 | `tags` | `string[]` | Labels for cross-cutting concerns |
 | `okrLink` | `string \| null` | Optional link to an OKR |
