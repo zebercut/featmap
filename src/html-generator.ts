@@ -274,6 +274,7 @@ function buildHtml(json: string, live: boolean, projectName: string): string {
   <input class="search" id="search" type="text" placeholder="Search features...">
   <select id="filterStatus"><option value="">All statuses</option></select>
   <select id="filterMoscow"><option value="">All MoSCoW</option></select>
+  <select id="filterPriority"><option value="">All priorities</option></select>
   <select id="filterCategory"><option value="">All categories</option></select>
   <select id="filterRelease"><option value="">All releases</option></select>
   <select id="filterTag"><option value="">All tags</option></select>
@@ -601,7 +602,7 @@ function makeEditable(td, featureId, field, currentValue, type) {
 }
 
 function populateFilters() {
-  const ids = ['filterStatus','filterMoscow','filterCategory','filterRelease','filterTag'];
+  const ids = ['filterStatus','filterMoscow','filterPriority','filterCategory','filterRelease','filterTag'];
   const saved = {};
   ids.forEach(id => { saved[id] = document.getElementById(id).value; });
   ids.forEach(id => {
@@ -610,12 +611,14 @@ function populateFilters() {
   });
   const statuses = STATUSES;
   const moscows = [...new Set(DATA.map(f => f.moscow))];
+  const priorities = [...new Set(DATA.map(f => f.priority).filter(p => p !== null && p !== undefined))].sort((a, b) => a - b);
   const categories = [...new Set(DATA.map(f => f.category))].sort();
   const releases = [...new Set(DATA.map(f => f.release).filter(Boolean))].sort();
   const tags = [...new Set(DATA.flatMap(f => f.tags))].sort();
 
   statuses.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; document.getElementById('filterStatus').appendChild(o); });
   moscows.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; document.getElementById('filterMoscow').appendChild(o); });
+  priorities.forEach(p => { const o = document.createElement('option'); o.value = String(p); o.textContent = 'P' + p; document.getElementById('filterPriority').appendChild(o); });
   categories.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; document.getElementById('filterCategory').appendChild(o); });
   releases.forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r; document.getElementById('filterRelease').appendChild(o); });
   tags.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; document.getElementById('filterTag').appendChild(o); });
@@ -627,6 +630,7 @@ function getFiltered() {
   const q = document.getElementById('search').value.toLowerCase();
   const status = document.getElementById('filterStatus').value;
   const moscow = document.getElementById('filterMoscow').value;
+  const priority = document.getElementById('filterPriority').value;
   const category = document.getElementById('filterCategory').value;
   const release = document.getElementById('filterRelease').value;
   const tag = document.getElementById('filterTag').value;
@@ -635,6 +639,7 @@ function getFiltered() {
     if (q && !f.id.toLowerCase().includes(q) && !f.title.toLowerCase().includes(q) && !f.tags.some(t => t.toLowerCase().includes(q))) return false;
     if (status && f.status !== status) return false;
     if (moscow && f.moscow !== moscow) return false;
+    if (priority && String(f.priority) !== priority) return false;
     if (category && f.category !== category) return false;
     if (release && f.release !== release) return false;
     if (tag && !f.tags.includes(tag)) return false;
