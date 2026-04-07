@@ -244,22 +244,51 @@ function startServer(featuresDir, port = 3456, projectName) {
         watchers.length = 0;
         if (!fs.existsSync(featuresDir))
             return;
-        // Watch each feature subdirectory
-        const dirs = fs.readdirSync(featuresDir, { withFileTypes: true });
-        for (const dir of dirs) {
-            if (!dir.isDirectory() || !types_1.FEATURE_DIR_PATTERN.test(dir.name))
+        // Watch each feature subdirectory — supports both flat (features/FEAT*/)
+        // and release-grouped (features/mvp/FEAT*/) layouts.
+        const top = fs.readdirSync(featuresDir, { withFileTypes: true });
+        for (const entry of top) {
+            if (!entry.isDirectory())
                 continue;
-            try {
-                const w = fs.watch(path.join(featuresDir, dir.name), scheduleBroadcast);
-                watchers.push(w);
+            if (types_1.FEATURE_DIR_PATTERN.test(entry.name)) {
+                // Flat layout
+                try {
+                    const w = fs.watch(path.join(featuresDir, entry.name), scheduleBroadcast);
+                    watchers.push(w);
+                }
+                catch { /* ignore */ }
             }
-            catch { /* ignore watch errors */ }
+            else if (!entry.name.startsWith("_") && !entry.name.startsWith(".")) {
+                // Release subfolder — watch each feature folder inside
+                const releaseDirPath = path.join(featuresDir, entry.name);
+                try {
+                    const subEntries = fs.readdirSync(releaseDirPath, { withFileTypes: true });
+                    for (const sub of subEntries) {
+                        if (sub.isDirectory() && types_1.FEATURE_DIR_PATTERN.test(sub.name)) {
+                            try {
+                                const w = fs.watch(path.join(releaseDirPath, sub.name), scheduleBroadcast);
+                                watchers.push(w);
+                            }
+                            catch { /* ignore */ }
+                        }
+                    }
+                    // Also watch the release subfolder itself for new/deleted feature dirs
+                    try {
+                        const releaseWatcher = fs.watch(releaseDirPath, () => {
+                            scheduleBroadcast();
+                            setTimeout(() => watchFeatures(), 500);
+                        });
+                        watchers.push(releaseWatcher);
+                    }
+                    catch { /* ignore */ }
+                }
+                catch { /* ignore */ }
+            }
         }
         // Watch root for new/deleted directories — re-scan watchers on change (#2)
         try {
             const rootWatcher = fs.watch(featuresDir, () => {
                 scheduleBroadcast();
-                // Re-scan to pick up new feature directories
                 setTimeout(() => watchFeatures(), 500);
             });
             watchers.push(rootWatcher);
@@ -319,22 +348,103 @@ function startServer(featuresDir, port = 3456, projectName) {
             });
             return;
         }
-        // GET /api/features/:id/doc — serve raw markdown for the feature
-        const docMatch = url.match(/^\/api\/features\/(FEAT\d{3,})\/doc$/);
-        if (req.method === "GET" && docMatch) {
-            const id = docMatch[1];
-            const dirName = (0, loader_1.findFeatureDir)(featuresDir, id);
-            if (!dirName) {
+        // GET /api/features/:id/artifacts — list discovered artifact files for a feature
+        const artifactsListMatch = url.match(/^\/api\/features\/(FEAT\d{3,})\/artifacts$/);
+        if (req.method === "GET" && artifactsListMatch) {
+            const id = artifactsListMatch[1];
+            const relPath = (0, loader_1.findFeatureDir)(featuresDir, id);
+            if (!relPath) {
                 jsonResponse(res, 404, { error: `Feature ${id} not found` });
                 return;
             }
-            const dirPath = path.join(featuresDir, dirName);
-            const mdFile = findMdFile(dirPath);
-            if (!mdFile) {
+            const artifacts = (0, loader_1.discoverArtifacts)(featuresDir, relPath);
+            // Always include a "doc" entry for the legacy single-md fallback so the
+            // detail panel always has at least one tab to show even for old features.
+            if (artifacts.length === 0) {
+                const dirPath = path.join(featuresDir, relPath);
+                const legacyMd = findMdFile(dirPath);
+                if (legacyMd) {
+                    artifacts.push({
+                        key: "spec",
+                        file: legacyMd,
+                        label: "Spec",
+                        path: path.join(relPath, legacyMd),
+                    });
+                }
+            }
+            jsonResponse(res, 200, artifacts.map((a) => ({ key: a.key, file: a.file, label: a.label })));
+            return;
+        }
+        // GET /api/features/:id/artifacts/:key — render a specific artifact as HTML
+        const artifactDocMatch = url.match(/^\/api\/features\/(FEAT\d{3,})\/artifacts\/([a-zA-Z]+)$/);
+        if (req.method === "GET" && artifactDocMatch) {
+            const id = artifactDocMatch[1];
+            const key = artifactDocMatch[2];
+            const relPath = (0, loader_1.findFeatureDir)(featuresDir, id);
+            if (!relPath) {
+                jsonResponse(res, 404, { error: `Feature ${id} not found` });
+                return;
+            }
+            const def = types_1.ARTIFACT_FILES.find((a) => a.key === key);
+            const dirPath = path.join(featuresDir, relPath);
+            let filePath = null;
+            if (def) {
+                // Try prefixed filename first ({featureId}_{file}.md), then plain {file}.md
+                const candidates = [`${id}_${def.file}`, def.file];
+                for (const candidate of candidates) {
+                    const fullPath = path.join(dirPath, candidate);
+                    if (fs.existsSync(fullPath)) {
+                        filePath = fullPath;
+                        break;
+                    }
+                }
+            }
+            // Fallback for legacy single-md when key === "spec"
+            if (!filePath && key === "spec") {
+                const legacyMd = findMdFile(dirPath);
+                if (legacyMd)
+                    filePath = path.join(dirPath, legacyMd);
+            }
+            if (!filePath) {
+                jsonResponse(res, 404, { error: `Artifact '${key}' not found for ${id}` });
+                return;
+            }
+            const md = fs.readFileSync(filePath, "utf-8");
+            const html = renderMarkdown(md);
+            res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+            res.end(html);
+            return;
+        }
+        // GET /api/features/:id/doc — backward-compat endpoint, returns the spec/legacy md
+        const docMatch = url.match(/^\/api\/features\/(FEAT\d{3,})\/doc$/);
+        if (req.method === "GET" && docMatch) {
+            const id = docMatch[1];
+            const relPath = (0, loader_1.findFeatureDir)(featuresDir, id);
+            if (!relPath) {
+                jsonResponse(res, 404, { error: `Feature ${id} not found` });
+                return;
+            }
+            const dirPath = path.join(featuresDir, relPath);
+            // Prefer prefixed spec ({id}_spec.md), then plain spec.md, then legacy single md
+            let filePath = null;
+            const candidates = [`${id}_spec.md`, "spec.md"];
+            for (const candidate of candidates) {
+                const fullPath = path.join(dirPath, candidate);
+                if (fs.existsSync(fullPath)) {
+                    filePath = fullPath;
+                    break;
+                }
+            }
+            if (!filePath) {
+                const legacyMd = findMdFile(dirPath);
+                if (legacyMd)
+                    filePath = path.join(dirPath, legacyMd);
+            }
+            if (!filePath) {
                 jsonResponse(res, 404, { error: `No markdown file found for ${id}` });
                 return;
             }
-            const md = fs.readFileSync(path.join(dirPath, mdFile), "utf-8");
+            const md = fs.readFileSync(filePath, "utf-8");
             const html = renderMarkdown(md);
             res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" });
             res.end(html);

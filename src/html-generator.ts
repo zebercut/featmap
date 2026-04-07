@@ -163,6 +163,12 @@ function buildHtml(json: string, live: boolean, projectName: string): string {
   .doc-close:hover { border-color: var(--accent); color: var(--text); }
   .doc-loading { color: var(--text3); padding: 40px; text-align: center; }
 
+  /* Artifact tabs */
+  .doc-tabs { display: flex; gap: 4px; margin: 0 0 16px 0; padding-bottom: 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .doc-tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text2); padding: 8px 14px; font-size: 13px; font-weight: 500; cursor: pointer; transition: color 0.15s, border-color 0.15s; margin-bottom: -1px; }
+  .doc-tab:hover { color: var(--text); }
+  .doc-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
   /* Rendered markdown */
   .md h1 { font-size: 22px; font-weight: 700; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
   .md h2 { font-size: 18px; font-weight: 600; margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
@@ -294,6 +300,7 @@ function buildHtml(json: string, live: boolean, projectName: string): string {
 <div class="doc-overlay" id="docOverlay"></div>
 <div class="doc-panel" id="docPanel">
   <button class="doc-close" id="docClose">&times;</button>
+  <div class="doc-tabs" id="docTabs"></div>
   <div class="md" id="docContent"></div>
 </div>
 
@@ -339,17 +346,60 @@ if (currentView !== 'list') document.getElementById('groupBy').style.display = '
 const docOverlay = document.getElementById('docOverlay');
 const docPanel = document.getElementById('docPanel');
 const docContent = document.getElementById('docContent');
+const docTabs = document.getElementById('docTabs');
 const docClose = document.getElementById('docClose');
+
+let currentDocFeatureId = null;
+
+function loadArtifact(featureId, key) {
+  docContent.innerHTML = '<div class="doc-loading">Loading...</div>';
+  // Update active tab styling
+  if (docTabs) {
+    docTabs.querySelectorAll('.doc-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.key === key);
+    });
+  }
+  fetch('/api/features/' + featureId + '/artifacts/' + key)
+    .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
+    .then(html => { docContent.innerHTML = html; })
+    .catch(() => { docContent.innerHTML = '<div class="doc-loading">Artifact not available</div>'; });
+}
 
 function openDoc(featureId) {
   if (!LIVE) return;
+  currentDocFeatureId = featureId;
   docContent.innerHTML = '<div class="doc-loading">Loading...</div>';
+  if (docTabs) docTabs.innerHTML = '';
   docOverlay.classList.add('open');
   docPanel.classList.add('open');
-  fetch('/api/features/' + featureId + '/doc')
-    .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
-    .then(html => { docContent.innerHTML = html; })
-    .catch(() => { docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>'; });
+
+  // First, fetch the list of available artifacts
+  fetch('/api/features/' + featureId + '/artifacts')
+    .then(r => { if (!r.ok) throw new Error('Not found'); return r.json(); })
+    .then(artifacts => {
+      if (!Array.isArray(artifacts) || artifacts.length === 0) {
+        docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>';
+        return;
+      }
+      // Build tab buttons
+      if (docTabs) {
+        docTabs.innerHTML = artifacts.map(a =>
+          '<button class="doc-tab" data-key="' + esc(a.key) + '">' + esc(a.label) + '</button>'
+        ).join('');
+        docTabs.querySelectorAll('.doc-tab').forEach(b => {
+          b.addEventListener('click', () => loadArtifact(featureId, b.dataset.key));
+        });
+      }
+      // Load the first artifact (always spec or fallback)
+      loadArtifact(featureId, artifacts[0].key);
+    })
+    .catch(() => {
+      // Fallback to legacy /doc endpoint for backward compat
+      fetch('/api/features/' + featureId + '/doc')
+        .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
+        .then(html => { docContent.innerHTML = html; })
+        .catch(() => { docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>'; });
+    });
 }
 
 function closeDoc() {

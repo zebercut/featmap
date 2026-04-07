@@ -1,8 +1,51 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Feature, FeatureFilter, FeatureSortField, FEATURE_DIR_PATTERN, featureDirName, extractIdFromDir, slugify } from "./types";
+import { Feature, FeatureFilter, FeatureSortField, FEATURE_DIR_PATTERN, featureDirName, extractIdFromDir, slugify, FeatureArtifact, ARTIFACT_FILES } from "./types";
 import { validateFeature } from "./validator";
 import { generateManifest } from "./index-generator";
+
+/**
+ * Walk featuresDir recursively to find all feature folders.
+ * Supports both flat layout (features/FEAT001_X) and release-grouped
+ * layout (features/mvp/FEAT001_X, features/phase-2/FEAT060_Y).
+ *
+ * Returns entries of { dirName, releaseDir } where releaseDir is the
+ * relative subdirectory containing the feature (empty string for flat layout).
+ */
+function findAllFeatureDirs(featuresDir: string): Array<{ dirName: string; releaseDir: string }> {
+  if (!fs.existsSync(featuresDir)) return [];
+  const result: Array<{ dirName: string; releaseDir: string }> = [];
+  const top = fs.readdirSync(featuresDir, { withFileTypes: true });
+  for (const entry of top) {
+    if (!entry.isDirectory()) continue;
+    if (FEATURE_DIR_PATTERN.test(entry.name)) {
+      // Flat layout: features/FEAT001_.../
+      result.push({ dirName: entry.name, releaseDir: "" });
+    } else if (!entry.name.startsWith("_") && !entry.name.startsWith(".")) {
+      // Release subfolder: features/mvp/FEAT001_.../
+      const releaseDir = entry.name;
+      const subDirPath = path.join(featuresDir, releaseDir);
+      try {
+        const subEntries = fs.readdirSync(subDirPath, { withFileTypes: true });
+        for (const sub of subEntries) {
+          if (sub.isDirectory() && FEATURE_DIR_PATTERN.test(sub.name)) {
+            result.push({ dirName: sub.name, releaseDir });
+          }
+        }
+      } catch {
+        // Not a directory we can read; skip
+      }
+    }
+  }
+  return result;
+}
+
+/** Resolve a feature directory's full path given its dirName + releaseDir. */
+function resolveFeaturePath(featuresDir: string, dirName: string, releaseDir: string): string {
+  return releaseDir
+    ? path.join(featuresDir, releaseDir, dirName)
+    : path.join(featuresDir, dirName);
+}
 
 
 function featureReadmeTemplate(f: Feature, fileName: string): string {
@@ -106,13 +149,24 @@ function atomicWrite(filePath: string, data: string): void {
   fs.renameSync(tmp, filePath);
 }
 
-/** Find the directory for a feature by its ID (e.g. FEAT001). Scans for dirs starting with that prefix. */
+/** Find the directory for a feature by its ID (e.g. FEAT001). Scans recursively. */
 export function findFeatureDir(featuresDir: string, id: string): string | null {
-  if (!fs.existsSync(featuresDir)) return null;
-  const entries = fs.readdirSync(featuresDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name.startsWith(id + "_")) return entry.name;
+  const all = findAllFeatureDirs(featuresDir);
+  for (const entry of all) {
+    if (entry.dirName.startsWith(id + "_")) {
+      return entry.releaseDir
+        ? path.join(entry.releaseDir, entry.dirName)
+        : entry.dirName;
+    }
+  }
+  return null;
+}
+
+/** Like findFeatureDir but returns the release subdirectory separately. */
+export function findFeatureLocation(featuresDir: string, id: string): { dirName: string; releaseDir: string } | null {
+  const all = findAllFeatureDirs(featuresDir);
+  for (const entry of all) {
+    if (entry.dirName.startsWith(id + "_")) return entry;
   }
   return null;
 }
@@ -126,36 +180,45 @@ function findJsonFile(dirPath: string): string | null {
   return null;
 }
 
-export function loadFeature(featuresDir: string, dirName: string): Feature | null {
-  const dirPath = path.join(featuresDir, dirName);
+export function loadFeature(featuresDir: string, dirNameOrRelative: string): Feature | null {
+  // dirNameOrRelative may be just "FEAT001_..." (flat) or "mvp/FEAT001_..." (nested)
+  const dirPath = path.join(featuresDir, dirNameOrRelative);
   if (!fs.existsSync(dirPath)) return null;
   const jsonFile = findJsonFile(dirPath);
   if (!jsonFile) return null;
   const raw = JSON.parse(fs.readFileSync(path.join(dirPath, jsonFile), "utf-8"));
   const result = validateFeature(raw);
   if (!result.valid) {
-    throw new Error(`Invalid feature ${dirName}: ${result.errors.join(", ")}`);
+    throw new Error(`Invalid feature ${dirNameOrRelative}: ${result.errors.join(", ")}`);
   }
-  return raw as Feature;
+  // If the feature lives in a release subfolder and its release field is empty,
+  // populate it implicitly from the parent folder name.
+  const feature = raw as Feature;
+  const releaseDir = path.dirname(dirNameOrRelative);
+  if (releaseDir && releaseDir !== "." && !feature.release) {
+    feature.release = releaseDir;
+  }
+  return feature;
 }
 
 export function loadFeatureById(featuresDir: string, id: string): Feature | null {
-  const dirName = findFeatureDir(featuresDir, id);
-  if (!dirName) return null;
-  return loadFeature(featuresDir, dirName);
+  const relativePath = findFeatureDir(featuresDir, id);
+  if (!relativePath) return null;
+  return loadFeature(featuresDir, relativePath);
 }
 
 export function loadAllFeatures(featuresDir: string): Feature[] {
-  if (!fs.existsSync(featuresDir)) return [];
-  const entries = fs.readdirSync(featuresDir, { withFileTypes: true });
+  const allDirs = findAllFeatureDirs(featuresDir);
   const features: Feature[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !FEATURE_DIR_PATTERN.test(entry.name)) continue;
+  for (const entry of allDirs) {
+    const relativePath = entry.releaseDir
+      ? path.join(entry.releaseDir, entry.dirName)
+      : entry.dirName;
     try {
-      const feature = loadFeature(featuresDir, entry.name);
+      const feature = loadFeature(featuresDir, relativePath);
       if (feature) features.push(feature);
     } catch (err) {
-      console.warn(`Skipping invalid feature ${entry.name}: ${err}`);
+      console.warn(`Skipping invalid feature ${relativePath}: ${err}`);
     }
   }
   return features.sort((a, b) => {
@@ -164,6 +227,50 @@ export function loadAllFeatures(featuresDir: string): Feature[] {
     if (pa !== pb) return pa - pb;
     return a.id.localeCompare(b.id);
   });
+}
+
+/**
+ * Discover artifact files inside a feature folder.
+ *
+ * Tries two filename patterns for each artifact key:
+ *   1. `FEAT{NNN}_{artifact}.md`  (preferred — disambiguates files when copied)
+ *   2. `{artifact}.md`            (fallback — works for any project)
+ *
+ * Examples for FEAT005 + key="designReview" (file="design-review.md"):
+ *   - FEAT005_design-review.md   (prefix convention)
+ *   - design-review.md           (plain convention)
+ *
+ * Returns only the artifacts that actually exist on disk. Stops at the first
+ * match per artifact, so a folder shouldn't have both forms simultaneously.
+ */
+export function discoverArtifacts(featuresDir: string, relativePath: string): FeatureArtifact[] {
+  const dirPath = path.join(featuresDir, relativePath);
+  if (!fs.existsSync(dirPath)) return [];
+
+  // Extract the feature ID from the folder name (e.g. "FEAT005_..." -> "FEAT005")
+  const folderName = path.basename(relativePath);
+  const featureId = extractIdFromDir(folderName);
+
+  const result: FeatureArtifact[] = [];
+  for (const def of ARTIFACT_FILES) {
+    const candidates: string[] = [];
+    if (featureId) candidates.push(`${featureId}_${def.file}`);
+    candidates.push(def.file);
+
+    for (const candidate of candidates) {
+      const fullPath = path.join(dirPath, candidate);
+      if (fs.existsSync(fullPath)) {
+        result.push({
+          key: def.key,
+          file: candidate,
+          label: def.label,
+          path: path.join(relativePath, candidate),
+        });
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 export function filterFeatures(features: Feature[], filter: FeatureFilter): Feature[] {
@@ -201,21 +308,42 @@ export function sortFeatures(
   return order === "desc" ? sorted.reverse() : sorted;
 }
 
+/**
+ * Write a feature to disk. If the feature already exists, its location
+ * (release subfolder, if any) is preserved. New features are written
+ * under features/{release}/ if a release is set, otherwise at features/ root.
+ */
 export function writeFeature(featuresDir: string, feature: Feature): void {
   const result = validateFeature(feature);
   if (!result.valid) {
     throw new Error(`Invalid feature data: ${result.errors.join(", ")}`);
   }
   const dirName = featureDirName(feature.id, feature.title);
-  const dir = path.join(featuresDir, dirName);
+
+  // Preserve existing location if the feature already exists
+  const existingLocation = findFeatureLocation(featuresDir, feature.id);
+  const releaseDir = existingLocation
+    ? existingLocation.releaseDir
+    : feature.release || "";
+
+  const dir = releaseDir
+    ? path.join(featuresDir, releaseDir, dirName)
+    : path.join(featuresDir, dirName);
+
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   const baseName = dirName;
   atomicWrite(path.join(dir, `${baseName}.json`), JSON.stringify(feature, null, 2) + "\n");
 
-  const mdPath = path.join(dir, `${baseName}.md`);
-  if (!fs.existsSync(mdPath)) {
-    fs.writeFileSync(mdPath, featureReadmeTemplate(feature, baseName), "utf-8");
+  // Only create the legacy default md file if NO artifact files exist yet.
+  // For migrated features that already have spec.md/design-review.md/etc,
+  // we don't want to create a stale {dirName}.md alongside them.
+  const hasAnyArtifact = ARTIFACT_FILES.some((a) =>
+    fs.existsSync(path.join(dir, a.file))
+  );
+  const legacyMdPath = path.join(dir, `${baseName}.md`);
+  if (!fs.existsSync(legacyMdPath) && !hasAnyArtifact) {
+    fs.writeFileSync(legacyMdPath, featureReadmeTemplate(feature, baseName), "utf-8");
   }
 
   generateManifest(featuresDir);
@@ -236,23 +364,38 @@ export function updateFeature(
     updatedAt: new Date().toISOString(),
   };
 
-  // If title changed, rename the directory and files
-  const oldDirName = findFeatureDir(featuresDir, id);
+  // If title changed, rename the directory and the JSON file (only).
+  // Other files (spec.md, design-review.md, code-review.md, test-plan.md,
+  // test-results.md, execution-plan.md) are NOT renamed — their names
+  // are convention-based and not tied to the feature title.
+  const location = findFeatureLocation(featuresDir, id);
+  const oldDirName = location?.dirName;
+  const releaseDir = location?.releaseDir || "";
   const newDirName = featureDirName(id, updated.title);
 
   if (oldDirName && oldDirName !== newDirName) {
-    const oldDir = path.join(featuresDir, oldDirName);
-    const newDir = path.join(featuresDir, newDirName);
-    // Rename old files inside the directory first
-    const files = fs.readdirSync(oldDir);
-    for (const file of files) {
-      const ext = path.extname(file);
-      const newFile = `${newDirName}${ext}`;
-      if (file !== newFile) {
-        fs.renameSync(path.join(oldDir, file), path.join(oldDir, newFile));
-      }
+    const parentDir = releaseDir ? path.join(featuresDir, releaseDir) : featuresDir;
+    const oldDir = path.join(parentDir, oldDirName);
+    const newDir = path.join(parentDir, newDirName);
+
+    // Rename only the JSON metadata file inside the directory.
+    // Match by exact name (the old dirName.json), not by extension —
+    // that's what caused the original collision bug.
+    const oldJsonName = `${oldDirName}.json`;
+    const newJsonName = `${newDirName}.json`;
+    const oldJsonPath = path.join(oldDir, oldJsonName);
+    if (fs.existsSync(oldJsonPath)) {
+      fs.renameSync(oldJsonPath, path.join(oldDir, newJsonName));
     }
-    // Rename directory
+
+    // Also rename the legacy default markdown file if it exists and matches
+    // the old dirName (this is the file featmap auto-creates for new features).
+    const oldLegacyMd = path.join(oldDir, `${oldDirName}.md`);
+    if (fs.existsSync(oldLegacyMd)) {
+      fs.renameSync(oldLegacyMd, path.join(oldDir, `${newDirName}.md`));
+    }
+
+    // Rename the directory itself.
     fs.renameSync(oldDir, newDir);
   }
 
@@ -261,11 +404,9 @@ export function updateFeature(
 }
 
 export function nextFeatureId(featuresDir: string): string {
-  const entries = fs.existsSync(featuresDir)
-    ? fs.readdirSync(featuresDir).filter((e) => FEATURE_DIR_PATTERN.test(e))
-    : [];
-  const nums = entries.map((e) => {
-    const id = extractIdFromDir(e);
+  const all = findAllFeatureDirs(featuresDir);
+  const nums = all.map((entry) => {
+    const id = extractIdFromDir(entry.dirName);
     return id ? parseInt(id.slice(4), 10) : 0;
   });
   const max = nums.length > 0 ? Math.max(...nums) : 0;

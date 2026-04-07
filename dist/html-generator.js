@@ -194,6 +194,12 @@ function buildHtml(json, live, projectName) {
   .doc-close:hover { border-color: var(--accent); color: var(--text); }
   .doc-loading { color: var(--text3); padding: 40px; text-align: center; }
 
+  /* Artifact tabs */
+  .doc-tabs { display: flex; gap: 4px; margin: 0 0 16px 0; padding-bottom: 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .doc-tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text2); padding: 8px 14px; font-size: 13px; font-weight: 500; cursor: pointer; transition: color 0.15s, border-color 0.15s; margin-bottom: -1px; }
+  .doc-tab:hover { color: var(--text); }
+  .doc-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
   /* Rendered markdown */
   .md h1 { font-size: 22px; font-weight: 700; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
   .md h2 { font-size: 18px; font-weight: 600; margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
@@ -305,6 +311,7 @@ function buildHtml(json, live, projectName) {
   <input class="search" id="search" type="text" placeholder="Search features...">
   <select id="filterStatus"><option value="">All statuses</option></select>
   <select id="filterMoscow"><option value="">All MoSCoW</option></select>
+  <select id="filterPriority"><option value="">All priorities</option></select>
   <select id="filterCategory"><option value="">All categories</option></select>
   <select id="filterRelease"><option value="">All releases</option></select>
   <select id="filterTag"><option value="">All tags</option></select>
@@ -324,6 +331,7 @@ function buildHtml(json, live, projectName) {
 <div class="doc-overlay" id="docOverlay"></div>
 <div class="doc-panel" id="docPanel">
   <button class="doc-close" id="docClose">&times;</button>
+  <div class="doc-tabs" id="docTabs"></div>
   <div class="md" id="docContent"></div>
 </div>
 
@@ -369,17 +377,60 @@ if (currentView !== 'list') document.getElementById('groupBy').style.display = '
 const docOverlay = document.getElementById('docOverlay');
 const docPanel = document.getElementById('docPanel');
 const docContent = document.getElementById('docContent');
+const docTabs = document.getElementById('docTabs');
 const docClose = document.getElementById('docClose');
+
+let currentDocFeatureId = null;
+
+function loadArtifact(featureId, key) {
+  docContent.innerHTML = '<div class="doc-loading">Loading...</div>';
+  // Update active tab styling
+  if (docTabs) {
+    docTabs.querySelectorAll('.doc-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.key === key);
+    });
+  }
+  fetch('/api/features/' + featureId + '/artifacts/' + key)
+    .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
+    .then(html => { docContent.innerHTML = html; })
+    .catch(() => { docContent.innerHTML = '<div class="doc-loading">Artifact not available</div>'; });
+}
 
 function openDoc(featureId) {
   if (!LIVE) return;
+  currentDocFeatureId = featureId;
   docContent.innerHTML = '<div class="doc-loading">Loading...</div>';
+  if (docTabs) docTabs.innerHTML = '';
   docOverlay.classList.add('open');
   docPanel.classList.add('open');
-  fetch('/api/features/' + featureId + '/doc')
-    .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
-    .then(html => { docContent.innerHTML = html; })
-    .catch(() => { docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>'; });
+
+  // First, fetch the list of available artifacts
+  fetch('/api/features/' + featureId + '/artifacts')
+    .then(r => { if (!r.ok) throw new Error('Not found'); return r.json(); })
+    .then(artifacts => {
+      if (!Array.isArray(artifacts) || artifacts.length === 0) {
+        docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>';
+        return;
+      }
+      // Build tab buttons
+      if (docTabs) {
+        docTabs.innerHTML = artifacts.map(a =>
+          '<button class="doc-tab" data-key="' + esc(a.key) + '">' + esc(a.label) + '</button>'
+        ).join('');
+        docTabs.querySelectorAll('.doc-tab').forEach(b => {
+          b.addEventListener('click', () => loadArtifact(featureId, b.dataset.key));
+        });
+      }
+      // Load the first artifact (always spec or fallback)
+      loadArtifact(featureId, artifacts[0].key);
+    })
+    .catch(() => {
+      // Fallback to legacy /doc endpoint for backward compat
+      fetch('/api/features/' + featureId + '/doc')
+        .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
+        .then(html => { docContent.innerHTML = html; })
+        .catch(() => { docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>'; });
+    });
 }
 
 function closeDoc() {
@@ -632,7 +683,7 @@ function makeEditable(td, featureId, field, currentValue, type) {
 }
 
 function populateFilters() {
-  const ids = ['filterStatus','filterMoscow','filterCategory','filterRelease','filterTag'];
+  const ids = ['filterStatus','filterMoscow','filterPriority','filterCategory','filterRelease','filterTag'];
   const saved = {};
   ids.forEach(id => { saved[id] = document.getElementById(id).value; });
   ids.forEach(id => {
@@ -641,12 +692,14 @@ function populateFilters() {
   });
   const statuses = STATUSES;
   const moscows = [...new Set(DATA.map(f => f.moscow))];
+  const priorities = [...new Set(DATA.map(f => f.priority).filter(p => p !== null && p !== undefined))].sort((a, b) => a - b);
   const categories = [...new Set(DATA.map(f => f.category))].sort();
   const releases = [...new Set(DATA.map(f => f.release).filter(Boolean))].sort();
   const tags = [...new Set(DATA.flatMap(f => f.tags))].sort();
 
   statuses.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; document.getElementById('filterStatus').appendChild(o); });
   moscows.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; document.getElementById('filterMoscow').appendChild(o); });
+  priorities.forEach(p => { const o = document.createElement('option'); o.value = String(p); o.textContent = 'P' + p; document.getElementById('filterPriority').appendChild(o); });
   categories.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; document.getElementById('filterCategory').appendChild(o); });
   releases.forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r; document.getElementById('filterRelease').appendChild(o); });
   tags.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; document.getElementById('filterTag').appendChild(o); });
@@ -658,6 +711,7 @@ function getFiltered() {
   const q = document.getElementById('search').value.toLowerCase();
   const status = document.getElementById('filterStatus').value;
   const moscow = document.getElementById('filterMoscow').value;
+  const priority = document.getElementById('filterPriority').value;
   const category = document.getElementById('filterCategory').value;
   const release = document.getElementById('filterRelease').value;
   const tag = document.getElementById('filterTag').value;
@@ -666,6 +720,7 @@ function getFiltered() {
     if (q && !f.id.toLowerCase().includes(q) && !f.title.toLowerCase().includes(q) && !f.tags.some(t => t.toLowerCase().includes(q))) return false;
     if (status && f.status !== status) return false;
     if (moscow && f.moscow !== moscow) return false;
+    if (priority && String(f.priority) !== priority) return false;
     if (category && f.category !== category) return false;
     if (release && f.release !== release) return false;
     if (tag && !f.tags.includes(tag)) return false;

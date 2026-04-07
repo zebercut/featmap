@@ -48,3 +48,22 @@ export interface FeatureManifest {
 export type FeatureFilterKey = "category" | "moscow" | "status" | "release";
 export type FeatureFilter = Partial<Pick<Feature, FeatureFilterKey>>;
 export type FeatureSortField = "priority" | "status" | "category" | "id" | "release";
+/**
+ * Artifact files discovered inside a feature folder by filename convention.
+ * These are NOT part of the JSON schema — they're a runtime concept used
+ * by the loader and server to render per-feature documentation tabs.
+ */
+export interface ArtifactDefinition {
+    key: string;
+    file: string;
+    label: string;
+}
+export interface FeatureArtifact extends ArtifactDefinition {
+    /** Path relative to featuresDir, e.g. "mvp/FEAT001_X/spec.md" */
+    path: string;
+}
+/**
+ * The default set of artifact files featmap looks for inside each feature folder.
+ * Projects can override this list via packages/featmap/featmap.config.json.
+ */
+export declare const ARTIFACT_FILES: readonly ArtifactDefinition[];
