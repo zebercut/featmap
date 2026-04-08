@@ -1,0 +1,63 @@
+{
+  "generatedAt": "2026-04-07T14:11:40.027Z",
+  "count": 3,
+  "features": [
+    {
+      "id": "FEAT029",
+      "title": "Shared RICE scoring module for prioritization across domains",
+      "category": "Architecture",
+      "moscow": "SHOULD",
+      "priority": 2,
+      "status": "Planned",
+      "release": "POST-MVP",
+      "tags": [
+        "rice",
+        "prioritization",
+        "architecture",
+        "shared",
+        "scoring"
+      ],
+      "type": "feature",
+      "complexity": null,
+      "progress": 0
+    },
+    {
+      "id": "FEAT030",
+      "title": "Tasks tab RICE scoring and Why-this-rank sheet",
+      "category": "Tasks",
+      "moscow": "SHOULD",
+      "priority": 2,
+      "status": "Planned",
+      "release": "v2.2",
+      "tags": [
+        "tasks",
+        "ui",
+        "prioritization",
+        "rice",
+        "tasks-tab"
+      ],
+      "type": "feature",
+      "complexity": null,
+      "progress": 0
+    },
+    {
+      "id": "FEAT031",
+      "title": "Tasks tab HITL corrections with bump pin and snooze",
+      "category": "Tasks",
+      "moscow": "SHOULD",
+      "priority": 3,
+      "status": "Planned",
+      "release": "v2.3",
+      "tags": [
+        "tasks",
+        "ui",
+        "hitl",
+        "corrections",
+        "tasks-tab"
+      ],
+      "type": "feature",
+      "complexity": null,
+      "progress": 0
+    }
+  ]
+}
