@@ -163,6 +163,100 @@ function cmdHtml(featuresDir: string, flags: Record<string, string>): void {
   console.log(`Generated ${outPath}`);
 }
 
+const STATUS_EMOJI: Record<string, string> = {
+  "Done": "\u2705",              // ✅
+  "Testing": "\uD83E\uDDEA",     // 🧪
+  "Code Reviewed": "\uD83D\uDD0D", // 🔍
+  "In Progress": "\uD83D\uDD04", // 🔄
+  "Design Reviewed": "\uD83D\uDCD0", // 📐
+  "Planned": "\uD83D\uDCCB",     // 📋
+  "Rejected": "\u274C",          // ❌
+};
+
+function cmdReleasePlan(featuresDir: string, flags: Record<string, string>): void {
+  const features = loadAllFeatures(featuresDir);
+  const filtered = flags.release
+    ? features.filter((f) => f.release === flags.release)
+    : features;
+
+  if (filtered.length === 0) {
+    console.error(flags.release
+      ? `No features found for release "${flags.release}"`
+      : "No features found");
+    process.exit(1);
+  }
+
+  // Group by release
+  const byRelease = new Map<string, Feature[]>();
+  for (const f of filtered) {
+    const rel = f.release ?? "(unreleased)";
+    if (!byRelease.has(rel)) byRelease.set(rel, []);
+    byRelease.get(rel)!.push(f);
+  }
+
+  // Compute overall progress
+  const total = filtered.length;
+  const done = filtered.filter((f) => f.status === "Done").length;
+  const inProgress = filtered.filter((f) => f.status === "In Progress" || f.status === "Code Reviewed" || f.status === "Testing").length;
+  const planned = filtered.filter((f) => f.status === "Planned" || f.status === "Design Reviewed").length;
+  const avgProgress = filtered.reduce((s, f) => s + f.progress, 0) / total;
+
+  const lines: string[] = [];
+  lines.push(`# Release Plan`);
+  lines.push("");
+  lines.push(`**Generated:** ${new Date().toISOString().slice(0, 16).replace("T", " ")}`);
+  lines.push(`**Source:** Auto-generated from \`features/_manifest.json\` by \`featmap release-plan\`. Do not edit manually.`);
+  lines.push("");
+  lines.push(`## Overview`);
+  lines.push("");
+  lines.push(`| Metric | Value |`);
+  lines.push(`|---|---|`);
+  lines.push(`| Total features | ${total} |`);
+  lines.push(`| \u2705 Done | ${done} |`);
+  lines.push(`| \uD83D\uDD04 In progress / review / test | ${inProgress} |`);
+  lines.push(`| \uD83D\uDCCB Planned | ${planned} |`);
+  lines.push(`| Average progress | ${Math.round(avgProgress)}% |`);
+  lines.push("");
+
+  // Sort releases: known order first (mvp, phase-2, phase-3, post-mvp), then alphabetical
+  const releaseOrder = ["mvp", "phase-2", "phase-3", "post-mvp"];
+  const sortedReleases = Array.from(byRelease.keys()).sort((a, b) => {
+    const ai = releaseOrder.indexOf(a);
+    const bi = releaseOrder.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  for (const release of sortedReleases) {
+    const items = byRelease.get(release)!.slice().sort((a, b) => a.id.localeCompare(b.id));
+    const releaseTotal = items.length;
+    const releaseDone = items.filter((f) => f.status === "Done").length;
+    const releaseProgress = Math.round((releaseDone / releaseTotal) * 100);
+
+    lines.push(`## ${release} (${releaseDone}/${releaseTotal} done, ${releaseProgress}%)`);
+    lines.push("");
+    lines.push(`| ID | Feature | Status | Progress | MoSCoW | Complexity |`);
+    lines.push(`|---|---|---|---|---|---|`);
+    for (const f of items) {
+      const emoji = STATUS_EMOJI[f.status] ?? "";
+      lines.push(`| ${f.id} | ${f.title} | ${emoji} ${f.status} | ${f.progress}% | ${f.moscow} | ${f.complexity ?? "\u2014"} |`);
+    }
+    lines.push("");
+  }
+
+  const md = lines.join("\n") + "\n";
+
+  if (flags.out) {
+    const outPath = path.resolve(flags.out);
+    require("fs").writeFileSync(outPath, md, "utf-8");
+    console.log(`Wrote release plan to ${outPath}`);
+  } else {
+    process.stdout.write(md);
+  }
+}
+
 function cmdStats(featuresDir: string): void {
   const features = loadAllFeatures(featuresDir);
   const byStatus: Record<string, number> = {};
@@ -209,6 +303,7 @@ Commands:
   regen                                                        Regenerate manifest
   html [--out=path]                                            Generate HTML viewer
   serve [--port=3456]                                          Start local server with live editing
+  release-plan [--release=mvp] [--out=path]                    Generate release plan markdown
   stats                                                        Show summary counts
   help                                                         Show this help
 
@@ -243,6 +338,9 @@ switch (command) {
     break;
   case "serve":
     startServer(featuresDir, flags.port ? parseInt(flags.port, 10) : 3456, flags.name);
+    break;
+  case "release-plan":
+    cmdReleasePlan(featuresDir, flags);
     break;
   case "stats":
     cmdStats(featuresDir);

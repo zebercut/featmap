@@ -33,21 +33,25 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.detectProjectName = detectProjectName;
 exports.generateHtml = generateHtml;
 exports.buildHtmlFromFeatures = buildHtmlFromFeatures;
 const fs = __importStar(require("fs"));
 const loader_1 = require("./loader");
-/** Try to read "name" from the nearest package.json above featuresDir */
+/** Try to read "name" from the root package.json above featuresDir.
+ *  Walks up to 10 levels and picks the topmost package.json found,
+ *  so subpackages (packages/foo) don't shadow the main project name. */
 function detectProjectName(featuresDir) {
     const path = require("path");
     let dir = path.resolve(featuresDir, "..");
-    for (let i = 0; i < 5; i++) {
+    let best = "featmap";
+    for (let i = 0; i < 10; i++) {
         const pkg = path.join(dir, "package.json");
         if (fs.existsSync(pkg)) {
             try {
                 const json = JSON.parse(fs.readFileSync(pkg, "utf-8"));
                 if (json.name)
-                    return json.name;
+                    best = json.name;
             }
             catch { /* ignore */ }
         }
@@ -56,7 +60,7 @@ function detectProjectName(featuresDir) {
             break;
         dir = parent;
     }
-    return "featmap";
+    return best;
 }
 function generateHtml(featuresDir, outPath, opts) {
     const features = (0, loader_1.loadAllFeatures)(featuresDir);
@@ -130,11 +134,17 @@ function buildHtml(json, live, projectName) {
 
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
   [data-theme="dark"] .badge-planned { background: #58a6ff22; color: var(--blue); }
+  [data-theme="dark"] .badge-designreviewed { background: #a78bfa22; color: #a78bfa; }
   [data-theme="dark"] .badge-inprogress { background: #d2992222; color: var(--yellow); }
+  [data-theme="dark"] .badge-codereviewed { background: #f778ba22; color: #f778ba; }
+  [data-theme="dark"] .badge-testing { background: #79c0ff22; color: #79c0ff; }
   [data-theme="dark"] .badge-done { background: #3fb95022; color: var(--green); }
   [data-theme="dark"] .badge-rejected { background: #f8514922; color: var(--red); }
   [data-theme="light"] .badge-planned { background: #0969da18; color: var(--blue); }
+  [data-theme="light"] .badge-designreviewed { background: #7c3aed18; color: #6d28d9; }
   [data-theme="light"] .badge-inprogress { background: #9a670018; color: var(--yellow); }
+  [data-theme="light"] .badge-codereviewed { background: #db277718; color: #db2777; }
+  [data-theme="light"] .badge-testing { background: #0550ae18; color: #0550ae; }
   [data-theme="light"] .badge-done { background: #1a7f3718; color: var(--green); }
   [data-theme="light"] .badge-rejected { background: #cf222e18; color: var(--red); }
 
@@ -183,6 +193,12 @@ function buildHtml(json, live, projectName) {
   .doc-close { position: sticky; top: 0; float: right; background: var(--bg2); border: 1px solid var(--border); color: var(--text2); width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; z-index: 1; }
   .doc-close:hover { border-color: var(--accent); color: var(--text); }
   .doc-loading { color: var(--text3); padding: 40px; text-align: center; }
+
+  /* Artifact tabs */
+  .doc-tabs { display: flex; gap: 4px; margin: 0 0 16px 0; padding-bottom: 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .doc-tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text2); padding: 8px 14px; font-size: 13px; font-weight: 500; cursor: pointer; transition: color 0.15s, border-color 0.15s; margin-bottom: -1px; }
+  .doc-tab:hover { color: var(--text); }
+  .doc-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
   /* Rendered markdown */
   .md h1 { font-size: 22px; font-weight: 700; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -247,7 +263,10 @@ function buildHtml(json, live, projectName) {
   .ms-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 12px; background: var(--bg3); }
   .ms-bar-seg { height: 100%; transition: width 0.3s ease; }
   .ms-bar-done { background: var(--green); }
+  .ms-bar-testing { background: #79c0ff; }
+  .ms-bar-codereviewed { background: #f778ba; }
   .ms-bar-wip { background: var(--yellow); }
+  .ms-bar-designreviewed { background: #a78bfa; }
   .ms-bar-planned { background: var(--accent); }
   .ms-bar-rejected { background: var(--gray); }
 
@@ -292,6 +311,7 @@ function buildHtml(json, live, projectName) {
   <input class="search" id="search" type="text" placeholder="Search features...">
   <select id="filterStatus"><option value="">All statuses</option></select>
   <select id="filterMoscow"><option value="">All MoSCoW</option></select>
+  <select id="filterPriority"><option value="">All priorities</option></select>
   <select id="filterCategory"><option value="">All categories</option></select>
   <select id="filterRelease"><option value="">All releases</option></select>
   <select id="filterTag"><option value="">All tags</option></select>
@@ -311,6 +331,7 @@ function buildHtml(json, live, projectName) {
 <div class="doc-overlay" id="docOverlay"></div>
 <div class="doc-panel" id="docPanel">
   <button class="doc-close" id="docClose">&times;</button>
+  <div class="doc-tabs" id="docTabs"></div>
   <div class="md" id="docContent"></div>
 </div>
 
@@ -356,17 +377,60 @@ if (currentView !== 'list') document.getElementById('groupBy').style.display = '
 const docOverlay = document.getElementById('docOverlay');
 const docPanel = document.getElementById('docPanel');
 const docContent = document.getElementById('docContent');
+const docTabs = document.getElementById('docTabs');
 const docClose = document.getElementById('docClose');
+
+let currentDocFeatureId = null;
+
+function loadArtifact(featureId, key) {
+  docContent.innerHTML = '<div class="doc-loading">Loading...</div>';
+  // Update active tab styling
+  if (docTabs) {
+    docTabs.querySelectorAll('.doc-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.key === key);
+    });
+  }
+  fetch('/api/features/' + featureId + '/artifacts/' + key)
+    .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
+    .then(html => { docContent.innerHTML = html; })
+    .catch(() => { docContent.innerHTML = '<div class="doc-loading">Artifact not available</div>'; });
+}
 
 function openDoc(featureId) {
   if (!LIVE) return;
+  currentDocFeatureId = featureId;
   docContent.innerHTML = '<div class="doc-loading">Loading...</div>';
+  if (docTabs) docTabs.innerHTML = '';
   docOverlay.classList.add('open');
   docPanel.classList.add('open');
-  fetch('/api/features/' + featureId + '/doc')
-    .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
-    .then(html => { docContent.innerHTML = html; })
-    .catch(() => { docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>'; });
+
+  // First, fetch the list of available artifacts
+  fetch('/api/features/' + featureId + '/artifacts')
+    .then(r => { if (!r.ok) throw new Error('Not found'); return r.json(); })
+    .then(artifacts => {
+      if (!Array.isArray(artifacts) || artifacts.length === 0) {
+        docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>';
+        return;
+      }
+      // Build tab buttons
+      if (docTabs) {
+        docTabs.innerHTML = artifacts.map(a =>
+          '<button class="doc-tab" data-key="' + esc(a.key) + '">' + esc(a.label) + '</button>'
+        ).join('');
+        docTabs.querySelectorAll('.doc-tab').forEach(b => {
+          b.addEventListener('click', () => loadArtifact(featureId, b.dataset.key));
+        });
+      }
+      // Load the first artifact (always spec or fallback)
+      loadArtifact(featureId, artifacts[0].key);
+    })
+    .catch(() => {
+      // Fallback to legacy /doc endpoint for backward compat
+      fetch('/api/features/' + featureId + '/doc')
+        .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
+        .then(html => { docContent.innerHTML = html; })
+        .catch(() => { docContent.innerHTML = '<div class="doc-loading">No documentation found for ' + esc(featureId) + '</div>'; });
+    });
 }
 
 function closeDoc() {
@@ -380,7 +444,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && docPanel.classList.contains('open')) { e.stopImmediatePropagation(); closeDoc(); }
 });
 
-const STATUSES = ['Planned', 'In Progress', 'Done', 'Rejected'];
+const STATUSES = ['Planned', 'Design Reviewed', 'In Progress', 'Code Reviewed', 'Testing', 'Done', 'Rejected'];
 const MOSCOWS = ['MUST', 'SHOULD', 'COULD', 'WONT'];
 const TYPES = ['feature', 'bug'];
 const COMPLEXITIES = ['low', 'medium', 'high', 'very-high'];
@@ -619,21 +683,23 @@ function makeEditable(td, featureId, field, currentValue, type) {
 }
 
 function populateFilters() {
-  const ids = ['filterStatus','filterMoscow','filterCategory','filterRelease','filterTag'];
+  const ids = ['filterStatus','filterMoscow','filterPriority','filterCategory','filterRelease','filterTag'];
   const saved = {};
   ids.forEach(id => { saved[id] = document.getElementById(id).value; });
   ids.forEach(id => {
     const sel = document.getElementById(id);
     while (sel.options.length > 1) sel.remove(1);
   });
-  const statuses = [...new Set(DATA.map(f => f.status))].sort();
+  const statuses = STATUSES;
   const moscows = [...new Set(DATA.map(f => f.moscow))];
+  const priorities = [...new Set(DATA.map(f => f.priority).filter(p => p !== null && p !== undefined))].sort((a, b) => a - b);
   const categories = [...new Set(DATA.map(f => f.category))].sort();
   const releases = [...new Set(DATA.map(f => f.release).filter(Boolean))].sort();
   const tags = [...new Set(DATA.flatMap(f => f.tags))].sort();
 
   statuses.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; document.getElementById('filterStatus').appendChild(o); });
   moscows.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; document.getElementById('filterMoscow').appendChild(o); });
+  priorities.forEach(p => { const o = document.createElement('option'); o.value = String(p); o.textContent = 'P' + p; document.getElementById('filterPriority').appendChild(o); });
   categories.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; document.getElementById('filterCategory').appendChild(o); });
   releases.forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r; document.getElementById('filterRelease').appendChild(o); });
   tags.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; document.getElementById('filterTag').appendChild(o); });
@@ -645,6 +711,7 @@ function getFiltered() {
   const q = document.getElementById('search').value.toLowerCase();
   const status = document.getElementById('filterStatus').value;
   const moscow = document.getElementById('filterMoscow').value;
+  const priority = document.getElementById('filterPriority').value;
   const category = document.getElementById('filterCategory').value;
   const release = document.getElementById('filterRelease').value;
   const tag = document.getElementById('filterTag').value;
@@ -653,6 +720,7 @@ function getFiltered() {
     if (q && !f.id.toLowerCase().includes(q) && !f.title.toLowerCase().includes(q) && !f.tags.some(t => t.toLowerCase().includes(q))) return false;
     if (status && f.status !== status) return false;
     if (moscow && f.moscow !== moscow) return false;
+    if (priority && String(f.priority) !== priority) return false;
     if (category && f.category !== category) return false;
     if (release && f.release !== release) return false;
     if (tag && !f.tags.includes(tag)) return false;
@@ -960,17 +1028,20 @@ function buildPagination(total) {
 // --- Milestone view ---
 const MOSCOW_ORDER = ['MUST', 'SHOULD', 'COULD', 'WONT'];
 const MOSCOW_COLORS = { MUST: 'var(--red)', SHOULD: 'var(--yellow)', COULD: 'var(--blue)', WONT: 'var(--gray)' };
-const STATUS_ORDER = ['Done', 'In Progress', 'Planned', 'Rejected'];
+const STATUS_ORDER = ['Done', 'Testing', 'Code Reviewed', 'In Progress', 'Design Reviewed', 'Planned', 'Rejected'];
 
 function buildMilestoneData(features) {
   const milestones = {};
   features.forEach(f => {
     const key = f.release || '(unassigned)';
-    if (!milestones[key]) milestones[key] = { name: key, features: [], done: 0, inProgress: 0, planned: 0, rejected: 0, moscow: {} };
+    if (!milestones[key]) milestones[key] = { name: key, features: [], done: 0, testing: 0, codeReviewed: 0, inProgress: 0, designReviewed: 0, planned: 0, rejected: 0, moscow: {} };
     const m = milestones[key];
     m.features.push(f);
     if (f.status === 'Done') m.done++;
+    else if (f.status === 'Testing') m.testing++;
+    else if (f.status === 'Code Reviewed') m.codeReviewed++;
     else if (f.status === 'In Progress') m.inProgress++;
+    else if (f.status === 'Design Reviewed') m.designReviewed++;
     else if (f.status === 'Planned') m.planned++;
     else m.rejected++;
     m.moscow[f.moscow] = (m.moscow[f.moscow] || 0) + 1;
@@ -1023,7 +1094,7 @@ function renderMilestoneCard(m) {
   const bar = document.createElement('div');
   bar.className = 'ms-bar';
   if (total > 0) {
-    [['ms-bar-done', m.done], ['ms-bar-wip', m.inProgress], ['ms-bar-planned', m.planned], ['ms-bar-rejected', m.rejected]].forEach(([cls, n]) => {
+    [['ms-bar-done', m.done], ['ms-bar-testing', m.testing], ['ms-bar-codereviewed', m.codeReviewed], ['ms-bar-wip', m.inProgress], ['ms-bar-designreviewed', m.designReviewed], ['ms-bar-planned', m.planned], ['ms-bar-rejected', m.rejected]].forEach(([cls, n]) => {
       if (n > 0) {
         const seg = document.createElement('div');
         seg.className = 'ms-bar-seg ' + cls;
@@ -1037,7 +1108,7 @@ function renderMilestoneCard(m) {
   // Status counts
   const stats = document.createElement('div');
   stats.className = 'ms-stats';
-  [['var(--green)', 'Done', m.done], ['var(--yellow)', 'In Progress', m.inProgress], ['var(--accent)', 'Planned', m.planned], ['var(--gray)', 'Rejected', m.rejected]].forEach(([color, label, n]) => {
+  [['var(--green)', 'Done', m.done], ['#79c0ff', 'Testing', m.testing], ['#f778ba', 'Code Reviewed', m.codeReviewed], ['var(--yellow)', 'In Progress', m.inProgress], ['#a78bfa', 'Design Reviewed', m.designReviewed], ['var(--accent)', 'Planned', m.planned], ['var(--gray)', 'Rejected', m.rejected]].forEach(([color, label, n]) => {
     if (n > 0) {
       const stat = document.createElement('div');
       stat.className = 'ms-stat';
@@ -1101,7 +1172,7 @@ function renderMilestoneSection(m) {
   });
   section.appendChild(hdr);
 
-  // Sort features: Done first, then In Progress, Planned, Rejected
+  // Sort features by status pipeline order
   const sorted = [...m.features].sort((a, b) => {
     const ai = STATUS_ORDER.indexOf(a.status), bi = STATUS_ORDER.indexOf(b.status);
     if (ai !== bi) return ai - bi;
