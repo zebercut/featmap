@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "feature.schema.json",
   "type": "object",
-  "required": ["id", "title", "category", "moscow", "priority", "status", "release", "createdAt", "updatedAt", "tags", "type", "progress"],
+  "required": ["id", "title", "category", "moscow", "priority", "status", "release", "createdAt", "updatedAt", "tags", "type"],
   "properties": {
     "id": { "type": "string", "pattern": "^FEAT\\d{3,}$" },
     "title": { "type": "string", "minLength": 1 },
@@ -18,7 +18,6 @@
     "type": { "enum": ["feature", "bug"], "default": "feature" },
     "description": { "type": ["string", "null"] },
     "complexity": { "enum": ["low", "medium", "high", "very-high", null] },
-    "progress": { "type": "integer", "minimum": 0, "maximum": 100, "default": 0 },
     "notes": { "type": ["string", "null"] },
     "specFile": { "type": ["string", "null"] },
     "githubIssue": { "type": ["integer", "null"] }

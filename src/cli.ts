@@ -48,16 +48,15 @@ function pad(str: string, len: number): string {
 }
 
 function printTable(features: Feature[]): void {
-  const header = ` ${pad("#", 8)}| ${pad("Feature", 40)}| ${pad("Type", 8)}| ${pad("Cat", 12)}| ${pad("MoSCoW", 8)}| ${pad("Cplx", 6)}| ${pad("Prio", 6)}| ${pad("Prog", 6)}| Status`;
+  const header = ` ${pad("#", 8)}| ${pad("Feature", 40)}| ${pad("Type", 8)}| ${pad("Cat", 12)}| ${pad("MoSCoW", 8)}| ${pad("Cplx", 6)}| ${pad("Prio", 6)}| Status`;
   const sep = "-".repeat(header.length);
   console.log(header);
   console.log(sep);
   for (const f of features) {
     const prio = f.priority !== null ? String(f.priority) : "\u2014";
     const cplx = f.complexity ?? "\u2014";
-    const prog = `${f.progress}%`;
     console.log(
-      ` ${pad(f.id, 8)}| ${pad(f.title, 40)}| ${pad(f.type, 8)}| ${pad(f.category, 12)}| ${pad(f.moscow, 8)}| ${pad(cplx, 6)}| ${pad(prio, 6)}| ${pad(prog, 6)}| ${f.status}`
+      ` ${pad(f.id, 8)}| ${pad(f.title, 40)}| ${pad(f.type, 8)}| ${pad(f.category, 12)}| ${pad(f.moscow, 8)}| ${pad(cplx, 6)}| ${pad(prio, 6)}| ${f.status}`
     );
   }
   console.log(`\n${features.length} feature(s)`);
@@ -91,7 +90,7 @@ function cmdShow(featuresDir: string, positional: string[]): void {
 
 function cmdAdd(featuresDir: string, flags: Record<string, string>): void {
   if (!flags.title || !flags.category || !flags.moscow) {
-    console.error('Usage: add --title="..." --category="..." --moscow=MUST [--priority=N] [--tags=a,b] [--type=feature|bug] [--complexity=X] [--progress=N]');
+    console.error('Usage: add --title="..." --category="..." --moscow=MUST [--priority=N] [--tags=a,b] [--type=feature|bug] [--complexity=X]');
     process.exit(1);
   }
   const id = nextFeatureId(featuresDir);
@@ -111,7 +110,6 @@ function cmdAdd(featuresDir: string, flags: Record<string, string>): void {
     type: (flags.type as FeatureType) ?? "feature",
     description: flags.description ?? null,
     complexity: (flags.complexity as Complexity) ?? null,
-    progress: flags.progress ? parseInt(flags.progress, 10) : 0,
     notes: flags.notes ?? null,
     specFile: flags.specFile ?? null,
     githubIssue: flags.githubIssue ? parseInt(flags.githubIssue, 10) : null,
@@ -123,7 +121,7 @@ function cmdAdd(featuresDir: string, flags: Record<string, string>): void {
 function cmdUpdate(featuresDir: string, positional: string[], flags: Record<string, string>): void {
   const id = positional[0];
   if (!id) {
-    console.error('Usage: update <id> --status="In Progress" [--priority=N] [--moscow=X] [--progress=N] [--type=X] [--complexity=X]');
+    console.error('Usage: update <id> --status="In Progress" [--priority=N] [--moscow=X] [--type=X] [--complexity=X]');
     process.exit(1);
   }
   const updates: Partial<Omit<Feature, "id">> = {};
@@ -138,7 +136,6 @@ function cmdUpdate(featuresDir: string, positional: string[], flags: Record<stri
   if (flags.type) updates.type = flags.type as FeatureType;
   if (flags.description !== undefined) updates.description = flags.description || null;
   if (flags.complexity) updates.complexity = flags.complexity as Complexity;
-  if (flags.progress !== undefined) updates.progress = parseInt(flags.progress, 10);
   if (flags.notes !== undefined) updates.notes = flags.notes || null;
   if (flags.specFile !== undefined) updates.specFile = flags.specFile || null;
   if (flags.githubIssue !== undefined) updates.githubIssue = flags.githubIssue ? parseInt(flags.githubIssue, 10) : null;
@@ -149,7 +146,7 @@ function cmdUpdate(featuresDir: string, positional: string[], flags: Record<stri
   }
 
   const updated = updateFeature(featuresDir, id.toUpperCase(), updates);
-  console.log(`Updated ${updated.id}: ${updated.title} [${updated.status}] ${updated.progress}%`);
+  console.log(`Updated ${updated.id}: ${updated.title} [${updated.status}]`);
 }
 
 function cmdRegen(featuresDir: string): void {
@@ -199,7 +196,6 @@ function cmdReleasePlan(featuresDir: string, flags: Record<string, string>): voi
   const done = filtered.filter((f) => f.status === "Done").length;
   const inProgress = filtered.filter((f) => f.status === "In Progress" || f.status === "Code Reviewed" || f.status === "Testing").length;
   const planned = filtered.filter((f) => f.status === "Planned" || f.status === "Design Reviewed").length;
-  const avgProgress = filtered.reduce((s, f) => s + f.progress, 0) / total;
 
   const lines: string[] = [];
   lines.push(`# Release Plan`);
@@ -215,7 +211,6 @@ function cmdReleasePlan(featuresDir: string, flags: Record<string, string>): voi
   lines.push(`| \u2705 Done | ${done} |`);
   lines.push(`| \uD83D\uDD04 In progress / review / test | ${inProgress} |`);
   lines.push(`| \uD83D\uDCCB Planned | ${planned} |`);
-  lines.push(`| Average progress | ${Math.round(avgProgress)}% |`);
   lines.push("");
 
   // Sort releases: known order first (mvp, phase-2, phase-3, post-mvp), then alphabetical
@@ -237,11 +232,11 @@ function cmdReleasePlan(featuresDir: string, flags: Record<string, string>): voi
 
     lines.push(`## ${release} (${releaseDone}/${releaseTotal} done, ${releaseProgress}%)`);
     lines.push("");
-    lines.push(`| ID | Feature | Status | Progress | MoSCoW | Complexity |`);
-    lines.push(`|---|---|---|---|---|---|`);
+    lines.push(`| ID | Feature | Status | MoSCoW | Complexity |`);
+    lines.push(`|---|---|---|---|---|`);
     for (const f of items) {
       const emoji = STATUS_EMOJI[f.status] ?? "";
-      lines.push(`| ${f.id} | ${f.title} | ${emoji} ${f.status} | ${f.progress}% | ${f.moscow} | ${f.complexity ?? "\u2014"} |`);
+      lines.push(`| ${f.id} | ${f.title} | ${emoji} ${f.status} | ${f.moscow} | ${f.complexity ?? "\u2014"} |`);
     }
     lines.push("");
   }
@@ -265,19 +260,18 @@ function cmdStats(featuresDir: string): void {
   const byType: Record<string, number> = {};
   const byComplexity: Record<string, number> = {};
 
-  let totalProgress = 0;
   for (const f of features) {
     byStatus[f.status] = (byStatus[f.status] ?? 0) + 1;
     byCategory[f.category] = (byCategory[f.category] ?? 0) + 1;
     byMoscow[f.moscow] = (byMoscow[f.moscow] ?? 0) + 1;
     byType[f.type] = (byType[f.type] ?? 0) + 1;
     if (f.complexity) byComplexity[f.complexity] = (byComplexity[f.complexity] ?? 0) + 1;
-    totalProgress += f.progress;
   }
 
-  const avgProgress = features.length > 0 ? Math.round(totalProgress / features.length) : 0;
+  const done = byStatus["Done"] ?? 0;
+  const pctDone = features.length > 0 ? Math.round((done / features.length) * 100) : 0;
 
-  console.log(`Total: ${features.length} features | Avg progress: ${avgProgress}%\n`);
+  console.log(`Total: ${features.length} features | Done: ${done} (${pctDone}%)\n`);
   console.log("By Type:");
   for (const [k, v] of Object.entries(byType).sort()) console.log(`  ${pad(k, 14)} ${v}`);
   console.log("\nBy Status:");

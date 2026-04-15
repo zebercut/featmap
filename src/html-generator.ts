@@ -133,14 +133,6 @@ function buildHtml(json: string, live: boolean, projectName: string): string {
   .complexity-medium { color: var(--yellow); }
   .complexity-high { color: var(--red); }
   .complexity-veryhigh { color: var(--red); font-weight: 700; }
-  .progress-bar { display: inline-flex; align-items: center; gap: 6px; min-width: 80px; }
-  .progress-track { flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; min-width: 50px; }
-  .progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
-  .progress-fill-low { background: var(--red); }
-  .progress-fill-mid { background: var(--yellow); }
-  .progress-fill-high { background: var(--green); }
-  .progress-label { font-size: 11px; color: var(--text2); white-space: nowrap; }
-
   .id-col { font-family: monospace; color: var(--text3); white-space: nowrap; }
   .title-col { font-weight: 500; }
   .title-link { color: var(--accent); cursor: pointer; text-decoration: none; }
@@ -419,7 +411,6 @@ const TYPES = ['feature', 'bug'];
 const COMPLEXITIES = ['low', 'medium', 'high', 'very-high'];
 const typeClass = t => 'type-' + t;
 const complexityClass = c => c ? 'complexity-' + c.replace('-', '') : '';
-function progressFillClass(p) { return p < 33 ? 'progress-fill-low' : p < 67 ? 'progress-fill-mid' : 'progress-fill-high'; }
 
 // --- SSE: auto-refresh on file changes (live mode only) ---
 if (LIVE) {
@@ -712,7 +703,7 @@ function sortData(features) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-const COL_COUNT = 11;
+const COL_COUNT = 10;
 const HEADERS = [
   { key: 'id', label: '#' },
   { key: 'title', label: 'Feature' },
@@ -721,7 +712,6 @@ const HEADERS = [
   { key: 'moscow', label: 'MoSCoW' },
   { key: 'complexity', label: 'Cplx' },
   { key: 'priority', label: 'Prio' },
-  { key: 'progress', label: 'Progress' },
   { key: 'status', label: 'Status' },
   { key: 'release', label: 'Release' },
   { key: 'tags', label: 'Tags' },
@@ -846,24 +836,6 @@ function renderRow(f) {
   tdPrio.textContent = f.priority !== null ? String(f.priority) : '\\u2014';
   makeEditable(tdPrio, f.id, 'priority', f.priority, 'text');
   tr.appendChild(tdPrio);
-
-  const tdProg = document.createElement('td');
-  const progBar = document.createElement('div');
-  progBar.className = 'progress-bar';
-  const progTrack = document.createElement('div');
-  progTrack.className = 'progress-track';
-  const progFill = document.createElement('div');
-  progFill.className = 'progress-fill ' + progressFillClass(f.progress);
-  progFill.style.width = f.progress + '%';
-  progTrack.appendChild(progFill);
-  progBar.appendChild(progTrack);
-  const progLabel = document.createElement('span');
-  progLabel.className = 'progress-label';
-  progLabel.textContent = f.progress + '%';
-  progBar.appendChild(progLabel);
-  tdProg.appendChild(progBar);
-  makeEditable(tdProg, f.id, 'progress', f.progress, 'text');
-  tr.appendChild(tdProg);
 
   const tdStatus = document.createElement('td');
   const statusSpan = document.createElement('span');

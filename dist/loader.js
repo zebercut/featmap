@@ -98,7 +98,7 @@ function featureReadmeTemplate(f, fileName) {
     return `# ${f.id} — ${f.title}
 
 **Type:** ${f.type}
-**Status:** ${f.status} | **Progress:** ${f.progress}%
+**Status:** ${f.status}
 **MoSCoW:** ${f.moscow}${f.complexity ? ` | **Complexity:** ${f.complexity}` : ""}
 **Category:** ${f.category}
 ${f.priority !== null ? `**Priority:** ${f.priority}  \n` : ""}\

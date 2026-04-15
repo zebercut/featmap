@@ -484,10 +484,6 @@ function startServer(featuresDir, port = 3456, projectName) {
                     allowed.description = updates.description || null;
                 if (updates.complexity !== undefined)
                     allowed.complexity = updates.complexity || null;
-                if (updates.progress !== undefined) {
-                    const prog = updates.progress;
-                    allowed.progress = prog === null || prog === "" ? 0 : parseInt(String(prog), 10);
-                }
                 if (updates.notes !== undefined)
                     allowed.notes = updates.notes || null;
                 if (updates.specFile !== undefined)

@@ -22,7 +22,6 @@ export interface Feature {
     type: FeatureType;
     description: string | null;
     complexity: Complexity | null;
-    progress: number;
     notes: string | null;
     specFile: string | null;
     githubIssue: number | null;
@@ -38,7 +37,6 @@ export interface FeatureManifestEntry {
     tags: string[];
     type: FeatureType;
     complexity: Complexity | null;
-    progress: number;
 }
 export interface FeatureManifest {
     generatedAt: string;

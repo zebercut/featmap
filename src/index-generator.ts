@@ -72,7 +72,6 @@ export function generateManifest(featuresDir: string): FeatureManifest {
         tags: f.tags,
         type: f.type,
         complexity: f.complexity,
-        progress: f.progress,
       });
     } catch (err) {
       console.warn(`Skipping unreadable feature ${relPath}: ${err}`);

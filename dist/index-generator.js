@@ -111,7 +111,6 @@ function generateManifest(featuresDir) {
                 tags: f.tags,
                 type: f.type,
                 complexity: f.complexity,
-                progress: f.progress,
             });
         }
         catch (err) {

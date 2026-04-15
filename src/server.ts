@@ -414,10 +414,6 @@ export function startServer(featuresDir: string, port: number = 3456, projectNam
         if (updates.type !== undefined) allowed.type = updates.type;
         if (updates.description !== undefined) allowed.description = updates.description || null;
         if (updates.complexity !== undefined) allowed.complexity = updates.complexity || null;
-        if (updates.progress !== undefined) {
-          const prog = updates.progress;
-          allowed.progress = prog === null || prog === "" ? 0 : parseInt(String(prog), 10);
-        }
         if (updates.notes !== undefined) allowed.notes = updates.notes || null;
         if (updates.specFile !== undefined) allowed.specFile = updates.specFile || null;
         if (updates.githubIssue !== undefined) {

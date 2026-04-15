@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-07T14:11:40.027Z",
+  "generatedAt": "2026-04-15T09:02:58.194Z",
   "count": 3,
   "features": [
     {
@@ -18,8 +18,7 @@
         "scoring"
       ],
       "type": "feature",
-      "complexity": null,
-      "progress": 0
+      "complexity": null
     },
     {
       "id": "FEAT030",
@@ -37,8 +36,7 @@
         "tasks-tab"
       ],
       "type": "feature",
-      "complexity": null,
-      "progress": 0
+      "complexity": null
     },
     {
       "id": "FEAT031",
@@ -56,8 +54,7 @@
         "tasks-tab"
       ],
       "type": "feature",
-      "complexity": null,
-      "progress": 0
+      "complexity": null
     }
   ]
 }
